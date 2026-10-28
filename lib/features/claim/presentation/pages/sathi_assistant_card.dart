@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
@@ -11,6 +12,7 @@ import '../../../../core/security/pii_masker.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/widgets/sathi_card.dart';
 import '../../data/sathi_agent_service.dart';
+import '../providers/claim_controller.dart';
 
 /// Voice/text entry for Sathi.
 /// - Default: device speech recognition, with Hindi-first locale for Hinglish.
@@ -18,8 +20,10 @@ import '../../data/sathi_agent_service.dart';
 ///   is configured, records a short WAV and sends it to the configured Sathi API.
 /// - Text goes to Gemini only when the separate cloud-text preference is enabled.
 class SathiAssistantCard extends StatefulWidget {
-  const SathiAssistantCard({super.key, required this.onNavigate});
+  const SathiAssistantCard({super.key, required this.onNavigate, this.claimContext = const {}});
   final ValueChanged<int> onNavigate;
+  /// Contains only user-attached document names/OCR text; never seeded demo claim values.
+  final Map<String, dynamic> claimContext;
 
   @override
   State<SathiAssistantCard> createState() => _SathiAssistantCardState();
@@ -31,6 +35,7 @@ class _SathiAssistantCardState extends State<SathiAssistantCard> {
   final _recorder = AudioRecorder();
   final _agent = SathiAgentService();
   final _privacyStore = PrivacySettingsStore();
+  final List<Map<String, String>> _chatHistory = [];
 
   SathiLanguageMode _language = SathiLanguageMode.hinglish;
   bool _speechReady = false;
@@ -48,6 +53,7 @@ class _SathiAssistantCardState extends State<SathiAssistantCard> {
   String? _statusMessage;
   String? _replyMode;
   String? _replyModel;
+  List<String> _evidenceUsed = const [];
   String _actionLabel = 'Review my claim';
   int _actionIndex = 1;
 
@@ -367,7 +373,11 @@ class _SathiAssistantCardState extends State<SathiAssistantCard> {
     }
     setState(() {
       _busy = true;
-      _statusMessage = 'Understanding your question…';
+      _answer = null;
+      _replyMode = null;
+      _replyModel = null;
+      _evidenceUsed = const [];
+      _statusMessage = 'Connecting to Sathi AI…';
     });
     try {
       // Read the latest stored preference before each request; a UI switch can
@@ -377,19 +387,33 @@ class _SathiAssistantCardState extends State<SathiAssistantCard> {
         message: PiiMasker.mask(input),
         language: _language,
         allowCloudAnalysis: _allowCloudText,
+        claimContext: widget.claimContext,
+        chatHistory: List<Map<String, String>>.unmodifiable(_chatHistory),
       );
       if (!mounted) return;
+      if (reply.draft.trim().isNotEmpty) {
+        context.read<ClaimCubit>().saveDraft(reply.draft.trim());
+      }
+      _chatHistory.add({'role': 'user', 'content': PiiMasker.mask(input)});
+      final historyAnswer = reply.draft.trim().isEmpty
+          ? reply.answer
+          : '${reply.answer}\n\nDraft prepared and saved to the Draft screen.';
+      _chatHistory.add({'role': 'assistant', 'content': historyAnswer});
+      while (_chatHistory.length > 10) {
+        _chatHistory.removeAt(0);
+      }
       setState(() {
         _answer = reply.answer;
         _actionIndex = reply.actionIndex;
         _actionLabel = reply.actionLabel;
         _replyMode = reply.mode;
         _replyModel = reply.model;
+        _evidenceUsed = reply.evidenceUsed;
         _statusMessage = [reply.notice, if (reply.mode == 'gemini_agent') 'Live model: ${reply.model}.'].where((item) => item.trim().isNotEmpty).join(' ');
       });
     } catch (error) {
       if (!mounted) return;
-      setState(() => _statusMessage = 'I could not process that request. Please try again or use the local helper. Details: $error');
+      setState(() { _answer = null; _replyMode = null; _replyModel = null; _evidenceUsed = const []; _statusMessage = error is StateError ? error.message.toString() : 'Live Sathi AI could not complete this request. Check the backend connection and try again. Error: $error'; });
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -468,6 +492,19 @@ class _SathiAssistantCardState extends State<SathiAssistantCard> {
           ]),
           const SizedBox(height: 7),
           Text(_answer!, style: const TextStyle(fontSize: 12, color: AppColors.ink, height: 1.5)),
+          if (_evidenceUsed.isNotEmpty) ...[
+            const SizedBox(height: 9),
+            const Text('Evidence considered (from text you provided)', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: AppColors.navy)),
+            const SizedBox(height: 4),
+            ..._evidenceUsed.take(4).map((item) => Padding(
+              padding: const EdgeInsets.only(bottom: 3),
+              child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                const Icon(Icons.description_outlined, size: 13, color: AppColors.teal),
+                const SizedBox(width: 5),
+                Expanded(child: Text(item, style: const TextStyle(fontSize: 10, color: AppColors.muted, height: 1.35))),
+              ]),
+            )),
+          ],
           if (_replyModel != null && _replyModel!.isNotEmpty) ...[
             const SizedBox(height: 5),
             Text('Model: $_replyModel', style: const TextStyle(fontSize: 9, color: AppColors.muted)),
@@ -483,9 +520,8 @@ class _SathiAssistantCardState extends State<SathiAssistantCard> {
 
   Widget _modeBadge(String? mode) {
     final (label, color) = switch (mode) {
-      'gemini_agent' => ('GEMINI AGENT', AppColors.tealDark),
-      'offline_fallback' => ('OFFLINE FALLBACK', AppColors.amber),
-      _ => ('LOCAL DEMO', AppColors.muted),
+      'gemini_agent' => ('GEMINI AI', AppColors.tealDark),
+      _ => ('AI UNAVAILABLE', AppColors.amber),
     };
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),

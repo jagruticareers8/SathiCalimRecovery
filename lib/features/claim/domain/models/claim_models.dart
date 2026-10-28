@@ -8,6 +8,7 @@ class ClaimDocument {
     this.fileName,
     this.uploadedAt,
     this.localPath,
+    this.extractedText,
   });
 
   final String id;
@@ -17,10 +18,22 @@ class ClaimDocument {
   final bool uploaded;
   final String? fileName;
   final DateTime? uploadedAt;
-  /// Ephemeral path on this device; never sent to the backend in this prototype.
+  /// Ephemeral on-device path. The file itself is not sent by the assistant.
   final String? localPath;
+  /// PII-masked OCR text retained in memory so the user can explicitly choose
+  /// to include document evidence in a consented cloud AI request.
+  final String? extractedText;
 
-  ClaimDocument copyWith({bool? uploaded, String? fileName, DateTime? uploadedAt, String? localPath, bool clearLocalPath = false, bool clearAttachment = false}) {
+  ClaimDocument copyWith({
+    bool? uploaded,
+    String? fileName,
+    DateTime? uploadedAt,
+    String? localPath,
+    String? extractedText,
+    bool clearLocalPath = false,
+    bool clearExtractedText = false,
+    bool clearAttachment = false,
+  }) {
     return ClaimDocument(
       id: id,
       title: title,
@@ -30,6 +43,7 @@ class ClaimDocument {
       fileName: clearAttachment ? null : (fileName ?? this.fileName),
       uploadedAt: clearAttachment ? null : (uploadedAt ?? this.uploadedAt),
       localPath: clearAttachment ? null : (clearLocalPath ? localPath : (localPath ?? this.localPath)),
+      extractedText: clearAttachment || clearExtractedText ? null : (extractedText ?? this.extractedText),
     );
   }
 }
@@ -74,11 +88,11 @@ class ClaimCitation {
   final int? page;
 
   factory ClaimCitation.fromJson(Map<String, dynamic> json) => ClaimCitation(
-        sourceTitle: json['sourceTitle'] as String? ?? 'Source document',
-        section: json['section'] as String? ?? 'Unspecified section',
-        excerpt: json['excerpt'] as String? ?? '',
-        page: json['page'] is int ? json['page'] as int : null,
-      );
+    sourceTitle: json['sourceTitle'] as String? ?? 'Source document',
+    section: json['section'] as String? ?? 'Unspecified section',
+    excerpt: json['excerpt'] as String? ?? '',
+    page: json['page'] is int ? json['page'] as int : null,
+  );
 }
 
 class ClaimAnalysis {
@@ -88,6 +102,7 @@ class ClaimAnalysis {
     required this.nextSteps,
     required this.disclaimer,
     this.citations = const [],
+    this.evidenceUsed = const [],
   });
 
   final String summary;
@@ -95,6 +110,9 @@ class ClaimAnalysis {
   final List<String> nextSteps;
   final String disclaimer;
   final List<ClaimCitation> citations;
+  /// Evidence excerpts/documents the model says it used. These are user-provided,
+  /// not verified insurer sources.
+  final List<String> evidenceUsed;
 
   factory ClaimAnalysis.fromJson(Map<String, dynamic> json) {
     return ClaimAnalysis(
@@ -105,6 +123,9 @@ class ClaimAnalysis {
       citations: (json['citations'] as List<dynamic>? ?? const [])
           .whereType<Map<String, dynamic>>()
           .map(ClaimCitation.fromJson)
+          .toList(),
+      evidenceUsed: (json['evidenceUsed'] as List<dynamic>? ?? const [])
+          .map((item) => item.toString())
           .toList(),
     );
   }
@@ -152,31 +173,25 @@ class ClaimState {
   double get documentProgress => requiredDocuments == 0 ? 0 : uploadedRequiredDocuments / requiredDocuments;
   List<String> get missingRequiredDocuments => documents.where((d) => d.required && !d.uploaded).map((d) => d.title).toList();
 
-  factory ClaimState.demo() {
+  factory ClaimState.empty() {
     return const ClaimState(
-      claimId: 'STH-26-10482',
-      insurerName: 'Demo Health Insurance Co.',
-      hospitalName: 'CityCare Multispeciality Hospital',
-      claimDate: '12 Oct 2026',
-      requestedAmount: 68500,
-      approvedAmount: 42000,
-      claimStatus: 'Partially approved',
-      insurerReason: 'The decision letter says the itemised hospital bill and discharge summary were not attached to the submitted claim.',
+      claimId: 'Not provided',
+      insurerName: 'Not connected',
+      hospitalName: 'Not provided',
+      claimDate: 'Not provided',
+      requestedAmount: 0,
+      approvedAmount: 0,
+      claimStatus: 'Not connected',
+      insurerReason: 'No insurer decision letter text has been provided yet.',
       documents: [
-        ClaimDocument(id: 'discharge', title: 'Discharge summary', description: 'Hospital summary with admission and discharge details.', required: true),
-        ClaimDocument(id: 'itemised_bill', title: 'Itemised hospital bill', description: 'Bill with separate line items, charges and totals.', required: true),
-        ClaimDocument(id: 'prescriptions', title: 'Doctor prescriptions', description: 'Prescriptions and treatment notes relevant to this claim.', required: true, uploaded: true, fileName: 'prescriptions_demo.pdf'),
+        ClaimDocument(id: 'decision', title: 'Claim decision / rejection letter', description: 'The insurer letter showing the decision and stated reason.', required: false),
+        ClaimDocument(id: 'itemised_bill', title: 'Itemised hospital bill', description: 'Hospital charges broken down by line item.', required: false),
+        ClaimDocument(id: 'discharge', title: 'Discharge summary', description: 'Admission, diagnosis and discharge information.', required: false),
+        ClaimDocument(id: 'prescriptions', title: 'Doctor prescriptions', description: 'Prescriptions relevant to the treatment.', required: false),
         ClaimDocument(id: 'reports', title: 'Investigation reports', description: 'Relevant lab, imaging or diagnostic reports.', required: false),
-        ClaimDocument(id: 'policy', title: 'Policy schedule / e-card', description: 'Policy number, coverage details and insured person.', required: true, uploaded: true, fileName: 'policy_demo.pdf'),
-        ClaimDocument(id: 'decision', title: 'Claim decision letter', description: 'Insurer document showing approved amount and reason.', required: true, uploaded: true, fileName: 'claim_decision_demo.pdf'),
+        ClaimDocument(id: 'policy', title: 'Policy schedule / e-card', description: 'Relevant policy details. Do not upload more personal data than necessary.', required: false),
       ],
-      timeline: [
-        ClaimTimelineEvent(title: 'Claim submitted', description: 'Claim received by insurer.', dateLabel: '12 Oct 2026', done: true),
-        ClaimTimelineEvent(title: 'Documents reviewed', description: 'Insurer reviewed submitted documents.', dateLabel: '15 Oct 2026', done: true),
-        ClaimTimelineEvent(title: 'Partial approval', description: '₹42,000 approved out of ₹68,500 requested.', dateLabel: '18 Oct 2026', done: true),
-        ClaimTimelineEvent(title: 'Prepare reconsideration', description: 'Add missing evidence and review the draft.', dateLabel: 'Next step', done: false, isCurrent: true),
-        ClaimTimelineEvent(title: 'Insurer response', description: 'Waiting for insurer after you submit through its official channel.', dateLabel: 'Pending', done: false),
-      ],
+      timeline: [],
       appealDraft: '',
     );
   }

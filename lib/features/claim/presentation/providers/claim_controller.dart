@@ -5,20 +5,18 @@ import '../../../../core/security/privacy_settings_store.dart';
 import '../../data/claim_analysis_service.dart';
 import '../../domain/models/claim_models.dart';
 
-/// Selects the demo service by default. Live API mode is opt-in and requires
-/// a backend that authenticates users, checks consent, and protects health data.
+/// Always uses the backend for AI analysis. Missing configuration is reported to
+/// the user; the app does not silently substitute a demo answer.
 ClaimAnalysisService createClaimAnalysisService() {
-  const useLiveApi = bool.fromEnvironment('SATHI_USE_LIVE_API', defaultValue: false);
   const baseUrl = String.fromEnvironment('SATHI_API_BASE_URL', defaultValue: '');
-  if (useLiveApi) return ApiClaimAnalysisService(baseUrl: baseUrl);
-  return DemoClaimAnalysisService();
+  return ApiClaimAnalysisService(baseUrl: baseUrl);
 }
 
 /// BLoC/Cubit state owner for the claim journey.
 class ClaimCubit extends Cubit<ClaimState> {
   ClaimCubit(this._analysisService, {PrivacySettingsStore? privacyStore})
       : _privacyStore = privacyStore ?? PrivacySettingsStore(),
-        super(ClaimState.demo());
+        super(ClaimState.empty());
 
   final ClaimAnalysisService _analysisService;
   final PrivacySettingsStore _privacyStore;
@@ -33,6 +31,7 @@ class ClaimCubit extends Cubit<ClaimState> {
         uploadedAt: now,
         localPath: localPath,
         clearLocalPath: true,
+        clearExtractedText: true,
       );
     }).toList();
     final title = updated.firstWhere((document) => document.id == id).title;
@@ -41,7 +40,7 @@ class ClaimCubit extends Cubit<ClaimState> {
       timeline: [
         ClaimTimelineEvent(
           title: 'Document added',
-          description: '$title attached locally in this demo.',
+          description: '$title attached on this device. It has not been sent to the insurer.',
           dateLabel: 'Just now',
           done: true,
         ),
@@ -60,22 +59,38 @@ class ClaimCubit extends Cubit<ClaimState> {
     emit(state.copyWith(documents: updated, clearAnalysis: true));
   }
 
+  /// Stores only PII-masked OCR text in in-memory app state. It is not sent to
+  /// the backend unless the user enables cloud analysis and asks Sathi.
+  void saveExtractedText(String id, String maskedText) {
+    final updated = state.documents.map((document) {
+      if (document.id != id) return document;
+      return document.copyWith(extractedText: maskedText);
+    }).toList();
+    emit(state.copyWith(documents: updated, clearAnalysis: true));
+  }
+
   Future<void> analyzeClaim() async {
     emit(state.copyWith(isAnalyzing: true, clearAnalysisError: true));
     try {
       if (_analysisService is ApiClaimAnalysisService && !(await _privacyStore.readCloudConsent())) {
         throw StateError('Cloud analysis is switched off. Open “How Sathi works” and enable the privacy preference only after reviewing the data-sharing note.');
       }
-      final uploaded = state.documents.where((d) => d.uploaded).map((d) => d.title).toList();
-      final required = state.documents.where((d) => d.required).map((d) => d.title).toList();
-      // Always redact common identifiers before the optional backend call.
-      // The production backend must perform its own validation and masking too.
-      final redactedReason = PiiMasker.mask(state.insurerReason);
+      // Never treat user interface defaults as insurer facts. Analysis is based only
+      // on files the user actually attached and OCR text they explicitly read on device.
+      final uploaded = state.documents
+          .where((d) => d.uploaded && d.localPath != null)
+          .map((d) => d.fileName ?? d.title)
+          .toList();
+      final documentTexts = state.documents
+          .where((d) => (d.extractedText ?? '').trim().isNotEmpty)
+          .map((d) => <String, String>{'title': d.title, 'text': PiiMasker.mask(d.extractedText!)})
+          .toList();
       final result = await _analysisService.analyze(
-        claimId: state.claimId,
-        insurerReason: redactedReason,
+        claimId: '',
+        insurerReason: '',
         uploadedDocuments: uploaded,
-        requiredDocuments: required,
+        requiredDocuments: const [],
+        documentTexts: documentTexts,
       );
       emit(state.copyWith(analysis: result, isAnalyzing: false));
     } catch (error) {

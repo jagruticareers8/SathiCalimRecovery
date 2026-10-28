@@ -16,12 +16,14 @@ class AppealPage extends StatefulWidget {
 
 class _AppealPageState extends State<AppealPage> {
   late final TextEditingController _draftController;
+  String _lastSyncedDraft = '';
 
   @override
   void initState() {
     super.initState();
     final claim = context.read<ClaimCubit>().state;
     _draftController = TextEditingController(text: claim.appealDraft.isNotEmpty ? claim.appealDraft : _makeDraft(claim));
+    _lastSyncedDraft = claim.appealDraft;
   }
 
   @override
@@ -34,7 +36,16 @@ class _AppealPageState extends State<AppealPage> {
   Widget build(BuildContext context) {
     final claim = context.watch<ClaimCubit>().state;
     final controller = context.read<ClaimCubit>();
-    if (claim.appealDraft.isNotEmpty && _draftController.text.isEmpty) _draftController.text = claim.appealDraft;
+    // Sathi may generate a fresh AI draft while this page remains mounted inside
+    // IndexedStack. Sync only when the Cubit draft changed externally; user typing
+    // updates _lastSyncedDraft before saving so the cursor is not reset each keystroke.
+    if (claim.appealDraft.isNotEmpty && claim.appealDraft != _lastSyncedDraft) {
+      _lastSyncedDraft = claim.appealDraft;
+      _draftController.value = TextEditingValue(
+        text: claim.appealDraft,
+        selection: TextSelection.collapsed(offset: claim.appealDraft.length),
+      );
+    }
 
     return SingleChildScrollView(
       padding: const EdgeInsets.fromLTRB(20, 24, 20, 28),
@@ -54,12 +65,12 @@ class _AppealPageState extends State<AppealPage> {
         SathiCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Row(children: [
             const Expanded(child: Text('Editable message', style: TextStyle(fontWeight: FontWeight.w900, color: AppColors.navy, fontSize: 15))),
-            TextButton.icon(onPressed: () { _draftController.text = _makeDraft(claim); controller.saveDraft(_draftController.text); }, icon: const Icon(Icons.refresh_rounded, size: 16), label: const Text('Refresh')),
+            TextButton.icon(onPressed: () { _draftController.text = _makeDraft(claim); _lastSyncedDraft = _draftController.text; controller.saveDraft(_draftController.text); }, icon: const Icon(Icons.refresh_rounded, size: 16), label: const Text('Refresh')),
           ]),
           const SizedBox(height: 10),
           TextField(
             controller: _draftController,
-            onChanged: controller.saveDraft,
+            onChanged: (text) { _lastSyncedDraft = text; controller.saveDraft(text); },
             minLines: 16,
             maxLines: 24,
             keyboardType: TextInputType.multiline,
@@ -80,7 +91,7 @@ class _AppealPageState extends State<AppealPage> {
         SathiCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           const Text('Have you submitted it?', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 15, color: AppColors.navy)),
           const SizedBox(height: 5),
-          const Text('After you submit it yourself via the insurer’s official website, email or grievance channel, you can record that step in the demo tracker.', style: TextStyle(color: AppColors.muted, fontSize: 11, height: 1.45)),
+          const Text('After you submit it yourself via the insurer’s official website, email or grievance channel, you can record that step in this app’s local activity log.', style: TextStyle(color: AppColors.muted, fontSize: 11, height: 1.45)),
           const SizedBox(height: 12),
           if (claim.reconsiderationMarkedSubmitted)
             const Row(children: [Icon(Icons.check_circle, color: AppColors.green), SizedBox(width: 8), Expanded(child: Text('Marked as submitted by you. This is not a confirmation from the insurer.', style: TextStyle(color: AppColors.green, fontSize: 12, fontWeight: FontWeight.w700)))])
@@ -94,27 +105,35 @@ class _AppealPageState extends State<AppealPage> {
   }
 
   String _makeDraft(ClaimState claim) {
-    final uploaded = claim.documents.where((d) => d.uploaded).map((d) => '• ${d.title}${d.fileName == null ? '' : ' (${d.fileName})'}').toList();
-    final attachments = uploaded.isEmpty ? '• [List only the documents you are actually attaching]' : uploaded.join('\n');
-    return '''Subject: Request for review of partial settlement — Claim ${claim.claimId}
+    final uploaded = claim.documents
+        .where((d) => d.uploaded && d.localPath != null)
+        .map((d) => '• ${d.title}${d.fileName == null ? '' : ' (${d.fileName})'}')
+        .toList();
+    final attachments = uploaded.isEmpty
+        ? '• [List only the documents you are actually attaching]'
+        : uploaded.join('\n');
+    return '''
+Subject: Request for review of health insurance claim — [Claim reference]
 
 Dear Claims Review Team,
 
-I am requesting a review of the partial settlement recorded for claim ${claim.claimId}, submitted on ${claim.claimDate} for treatment at ${claim.hospitalName}.
+I am requesting a review of the decision for my health insurance claim [claim reference], dated [decision date].
 
-The decision letter states: “${claim.insurerReason}”
+The decision letter states: “[Paste the exact reason from the insurer's letter.]”
 
-Please share an itemised explanation of the amount approved and the remaining amount of ₹${claim.unpaidAmount}, including any applicable policy clause, benefit limit, exclusion or deduction. Please also confirm which additional documents or information are needed for review.
+Please provide an itemised explanation of the amount approved and any amount not approved, including the policy clause, benefit limit, exclusion, co-payment, sub-limit or other deduction relied upon. Please confirm which additional documents or information you require for reconsideration.
 
-Documents currently marked as attached in my checklist:
+Documents I am actually attaching:
 $attachments
 
-Please confirm receipt of this request, provide a reference number, and let me know the next steps and applicable timelines. I understand that the review will be subject to the policy terms and your formal assessment.
+Please confirm receipt, provide a reference number, and explain the next steps and applicable timelines. I understand that any review is subject to the policy terms and your formal assessment.
 
 Regards,
 [Policyholder name]
-[Registered mobile number / email]
-[Policy or claim reference, if required]
+[Registered contact details, if required]
+[Claim reference]
+
+Note: Replace every bracketed field and remove any statement that does not apply. Verify the letter against your real documents before sending.
 ''';
   }
 
@@ -123,7 +142,7 @@ Regards,
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: const Text('Record submission?'),
-        content: const Text('This only updates the local demo timeline. Sathi will not send the draft or contact the insurer. Have you already submitted it through the insurer’s official channel?'),
+        content: const Text('This records your confirmation locally only. Sathi will not send the draft or contact the insurer. Have you already submitted it through the insurer’s official channel?'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Not yet')),
           FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Yes, I submitted it')),

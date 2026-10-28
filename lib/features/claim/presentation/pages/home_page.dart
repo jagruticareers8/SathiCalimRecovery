@@ -15,7 +15,7 @@ class HomePage extends StatelessWidget {
   Widget build(BuildContext context) {
     final claim = context.watch<ClaimCubit>().state;
     final controller = context.read<ClaimCubit>();
-    final money = (int value) => '₹${value.toString().replaceAllMapped(RegExp(r'\B(?=(\d{3})+(?!\d))'), (m) => ',')}';
+    final attachedCount = claim.documents.where((document) => document.uploaded).length;
 
     return SingleChildScrollView(
       padding: const EdgeInsets.fromLTRB(20, 18, 20, 28),
@@ -39,17 +39,17 @@ class HomePage extends StatelessWidget {
               ),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-                decoration: BoxDecoration(color: AppColors.amberBg, borderRadius: BorderRadius.circular(30)),
-                child: const Text('DEMO DATA', style: TextStyle(fontSize: 10, color: AppColors.amber, fontWeight: FontWeight.w800)),
+                decoration: BoxDecoration(color: AppColors.mint, borderRadius: BorderRadius.circular(30)),
+                child: const Text('AI SUPPORT', style: TextStyle(fontSize: 10, color: AppColors.tealDark, fontWeight: FontWeight.w800)),
               ),
             ],
           ),
           const SizedBox(height: 24),
-          Text('Namaste, Jagruti 👋', style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: AppColors.muted)),
+          Text('Namaste 👋', style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: AppColors.muted)),
           const SizedBox(height: 6),
           Text('Let’s make your claim\nclearer and easier.', style: Theme.of(context).textTheme.headlineLarge),
           const SizedBox(height: 10),
-          Text('Understand the decision, gather the right documents, and prepare your next step with confidence.', style: Theme.of(context).textTheme.bodyLarge?.copyWith(color: AppColors.muted)),
+          Text('Ask a question in Hindi, English or Hinglish. Add your own decision-letter text when you need an explanation grounded in your case.', style: Theme.of(context).textTheme.bodyLarge?.copyWith(color: AppColors.muted)),
           const SizedBox(height: 14),
           SathiCard(
             padding: const EdgeInsets.all(13),
@@ -59,7 +59,7 @@ class HomePage extends StatelessWidget {
               const Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 Text('Simple steps. Privacy by design.', style: TextStyle(color: AppColors.navy, fontWeight: FontWeight.w800, fontSize: 12)),
                 SizedBox(height: 3),
-                Text('See how Sathi reads documents and handles your data.', style: TextStyle(color: AppColors.muted, fontSize: 10, height: 1.35)),
+                Text('Choose whether to send masked text to cloud AI. Your files are not automatically uploaded.', style: TextStyle(color: AppColors.muted, fontSize: 10, height: 1.35)),
               ])),
               IconButton(
                 tooltip: 'How Sathi works',
@@ -69,74 +69,92 @@ class HomePage extends StatelessWidget {
             ]),
           ),
           const SizedBox(height: 14),
-          SathiAssistantCard(onNavigate: onNavigate),
+          SathiAssistantCard(
+            onNavigate: onNavigate,
+            claimContext: {
+              'attachedDocumentNames': claim.documents
+                  .where((document) => document.uploaded && document.localPath != null)
+                  .map((document) => document.fileName ?? document.title)
+                  .toList(),
+              'documentTexts': claim.documents
+                  .where((document) => (document.extractedText ?? '').trim().isNotEmpty)
+                  .map((document) => {'title': document.title, 'text': document.extractedText})
+                  .toList(),
+            },
+          ),
           const SizedBox(height: 16),
-          Container(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(24),
-              gradient: const LinearGradient(colors: [AppColors.navy, Color(0xFF145B66)], begin: Alignment.topLeft, end: Alignment.bottomRight),
-              boxShadow: [BoxShadow(color: AppColors.navy.withValues(alpha: 0.12), blurRadius: 18, offset: const Offset(0, 8))],
-            ),
+          SathiCard(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Row(children: [
-                const Icon(Icons.health_and_safety_rounded, color: Colors.white, size: 22),
-                const SizedBox(width: 8),
-                const Expanded(child: Text('Your health claim needs attention', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700))),
-                _statusPill(claim.claimStatus),
+                Container(width: 42, height: 42, decoration: BoxDecoration(color: AppColors.mint, borderRadius: BorderRadius.circular(13)), child: const Icon(Icons.description_outlined, color: AppColors.teal)),
+                const SizedBox(width: 11),
+                const Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text('Your claim workspace', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: AppColors.navy)),
+                  SizedBox(height: 3),
+                  Text('No insurer account is connected', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: AppColors.amber)),
+                ])),
               ]),
-              const SizedBox(height: 20),
-              const Text('Amount not yet approved', style: TextStyle(color: Color(0xFFC7E4E6), fontSize: 12)),
-              const SizedBox(height: 2),
-              Text(money(claim.unpaidAmount), style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 34)),
+              const SizedBox(height: 10),
+              const Text('Sathi cannot fetch a live claim status, policy coverage, requested amount or approved amount yet. Add your actual decision letter or paste a redacted excerpt so the AI can explain what the text says.', style: TextStyle(color: AppColors.muted, fontSize: 12, height: 1.5)),
               const SizedBox(height: 12),
               Row(children: [
-                _amountColumn('Requested', money(claim.requestedAmount)),
-                const SizedBox(width: 26),
-                _amountColumn('Approved', money(claim.approvedAmount)),
+                Expanded(child: Text('$attachedCount of ${claim.documents.length} common document types attached on this device', style: const TextStyle(fontSize: 11, color: AppColors.navy, fontWeight: FontWeight.w700))),
+                TextButton(onPressed: () => onNavigate(2), child: const Text('Documents')),
               ]),
-              const SizedBox(height: 18),
-              FilledButton.icon(
-                onPressed: () => onNavigate(1),
-                style: FilledButton.styleFrom(backgroundColor: Colors.white, foregroundColor: AppColors.navy),
-                icon: const Icon(Icons.arrow_forward_rounded),
-                label: const Text('Review my claim'),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: LinearProgressIndicator(
+                  value: claim.documents.isEmpty ? 0 : attachedCount / claim.documents.length,
+                  minHeight: 6,
+                  backgroundColor: AppColors.border,
+                  color: AppColors.teal,
+                ),
               ),
-              const SizedBox(height: 6),
-              const Text('Demo scenario only — not a real insurance record.', style: TextStyle(color: Color(0xFFC7E4E6), fontSize: 10)),
+              const SizedBox(height: 12),
+              Row(children: [
+                Expanded(child: OutlinedButton.icon(onPressed: () => onNavigate(1), icon: const Icon(Icons.fact_check_outlined), label: const Text('Review explanation'))),
+                const SizedBox(width: 10),
+                Expanded(child: FilledButton.icon(onPressed: () => onNavigate(2), icon: const Icon(Icons.add_photo_alternate_outlined), label: const Text('Add documents'))),
+              ]),
             ]),
           ),
-          const SizedBox(height: 23),
+          const SizedBox(height: 22),
           const SectionHeading('Your next steps'),
           const SizedBox(height: 12),
           Row(children: [
-            Expanded(child: _actionCard(context, icon: Icons.folder_copy_outlined, title: 'Documents', subtitle: '${claim.uploadedDocuments} attached', onTap: () => onNavigate(2))),
+            Expanded(child: _actionCard(context, icon: Icons.folder_copy_outlined, title: 'Documents', subtitle: '$attachedCount attached', onTap: () => onNavigate(2))),
             const SizedBox(width: 10),
-            Expanded(child: _actionCard(context, icon: Icons.timeline_rounded, title: 'Claim tracker', subtitle: 'View timeline', onTap: () => onNavigate(3))),
+            Expanded(child: _actionCard(context, icon: Icons.timeline_rounded, title: 'Activity log', subtitle: 'Your local actions', onTap: () => onNavigate(3))),
           ]),
           const SizedBox(height: 10),
           SathiCard(
-            child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Container(width: 42, height: 42, decoration: BoxDecoration(color: AppColors.mint, borderRadius: BorderRadius.circular(13)), child: const Icon(Icons.auto_awesome, color: AppColors.teal)),
-              const SizedBox(width: 12),
-              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                const Text('Make sense of the insurer’s reason', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14, color: AppColors.navy)),
-                const SizedBox(height: 4),
-                const Text('Check your required documents and get a plain-language next-step checklist.', style: TextStyle(color: AppColors.muted, fontSize: 12, height: 1.4)),
-                const SizedBox(height: 10),
-                if (claim.isAnalyzing)
-                  const LinearProgressIndicator(minHeight: 3)
-                else
-                  FilledButton.tonalIcon(
-                    onPressed: () async {
-                      await controller.analyzeClaim();
-                      if (context.mounted) onNavigate(1);
-                    },
-                    icon: const Icon(Icons.lightbulb_outline),
-                    label: const Text('Explain my claim'),
-                    style: FilledButton.styleFrom(minimumSize: const Size(0, 42), padding: const EdgeInsets.symmetric(horizontal: 12)),
-                  ),
-              ])),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Row(children: [
+                Container(width: 42, height: 42, decoration: BoxDecoration(color: AppColors.mint, borderRadius: BorderRadius.circular(13)), child: const Icon(Icons.auto_awesome, color: AppColors.teal)),
+                const SizedBox(width: 12),
+                const Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text('Explain your actual documents', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14, color: AppColors.navy)),
+                  SizedBox(height: 4),
+                  Text('Use only the text you have attached and reviewed. Sathi does not guess the insurer’s reason.', style: TextStyle(color: AppColors.muted, fontSize: 12, height: 1.4)),
+                ])),
+              ]),
+              const SizedBox(height: 12),
+              if (claim.isAnalyzing)
+                const LinearProgressIndicator(minHeight: 3)
+              else
+                FilledButton.tonalIcon(
+                  onPressed: () async {
+                    await controller.analyzeClaim();
+                    if (context.mounted) onNavigate(1);
+                  },
+                  icon: const Icon(Icons.lightbulb_outline),
+                  label: const Text('Explain my claim'),
+                  style: FilledButton.styleFrom(minimumSize: const Size(0, 42), padding: const EdgeInsets.symmetric(horizontal: 12)),
+                ),
+              if (claim.analysisError != null) ...[
+                const SizedBox(height: 8),
+                Text(claim.analysisError!, style: const TextStyle(color: AppColors.red, fontSize: 12)),
+              ],
             ]),
           ),
           const SizedBox(height: 18),
@@ -146,7 +164,7 @@ class HomePage extends StatelessWidget {
             child: const Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Icon(Icons.lock_outline_rounded, color: AppColors.teal, size: 20),
               SizedBox(width: 10),
-              Expanded(child: Text('Privacy-first prototype: selected files are not uploaded or analysed by a live AI service. The app shows sample guidance only.', style: TextStyle(color: AppColors.muted, fontSize: 11, height: 1.45))),
+              Expanded(child: Text('Your files stay on this device. If you enable cloud analysis and ask Sathi, masked OCR text from documents you read may be sent to the configured AI backend. No insurer or TPA status connection is active.', style: TextStyle(color: AppColors.muted, fontSize: 11, height: 1.45))),
             ]),
           ),
         ],
@@ -154,30 +172,15 @@ class HomePage extends StatelessWidget {
     );
   }
 
-  Widget _amountColumn(String label, String amount) => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-    Text(label, style: const TextStyle(color: Color(0xFFC7E4E6), fontSize: 11)),
-    const SizedBox(height: 3),
-    Text(amount, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 16)),
-  ]);
-
-  Widget _statusPill(String value) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-    decoration: BoxDecoration(color: const Color(0xFFFFE7B2), borderRadius: BorderRadius.circular(20)),
-    child: Text(value, style: const TextStyle(color: AppColors.amber, fontSize: 10, fontWeight: FontWeight.w800)),
-  );
-
   Widget _actionCard(BuildContext context, {required IconData icon, required String title, required String subtitle, required VoidCallback onTap}) => InkWell(
     onTap: onTap,
     borderRadius: BorderRadius.circular(18),
-    child: SathiCard(
-      padding: const EdgeInsets.all(14),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Container(width: 38, height: 38, decoration: BoxDecoration(color: AppColors.mint, borderRadius: BorderRadius.circular(12)), child: Icon(icon, color: AppColors.teal)),
-        const SizedBox(height: 12),
-        Text(title, style: const TextStyle(fontWeight: FontWeight.w800, color: AppColors.navy)),
-        const SizedBox(height: 3),
-        Text(subtitle, style: const TextStyle(color: AppColors.muted, fontSize: 11)),
-      ]),
-    ),
+    child: SathiCard(padding: const EdgeInsets.all(14), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Icon(icon, color: AppColors.teal, size: 24),
+      const SizedBox(height: 10),
+      Text(title, style: const TextStyle(color: AppColors.navy, fontSize: 13, fontWeight: FontWeight.w900)),
+      const SizedBox(height: 3),
+      Text(subtitle, style: const TextStyle(color: AppColors.muted, fontSize: 10)),
+    ])),
   );
 }

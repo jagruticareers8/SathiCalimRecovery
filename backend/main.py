@@ -1,10 +1,14 @@
-"""Sathi demo agent backend.
+"""Sathi AI backend for a local/hackathon prototype.
 
-This is a local hackathon backend, not production-ready insurance infrastructure.
-It calls Gemini only when GEMINI_API_KEY is configured; otherwise text chat returns
-clearly labelled deterministic demo guidance. The application does not intentionally
-persist audio or log transcripts, but the HTTP upload framework may temporarily
-buffer an uploaded file. Do not send real claimant/medical data to this demo.
+This backend generates answers from the user's question and explicitly supplied,
+PII-masked document text. It does not fabricate claim status and does not connect
+to an insurer. Real insurer status/claim submission requires a provider-specific,
+authenticated integration and is intentionally not simulated here.
+
+Before accepting real customer data in production, add Firebase/OIDC authentication,
+per-user authorization, rate limiting, audit controls, secret management, a retention
+policy, and a reviewed privacy/security design. The local development endpoints are
+not a production insurance service.
 """
 from __future__ import annotations
 
@@ -18,6 +22,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from google import genai
+from google.genai import types
 from pydantic import BaseModel, Field
 
 load_dotenv()
@@ -26,31 +31,25 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-flash").strip()
 GEMINI_TRANSCRIPTION_MODEL = os.getenv("GEMINI_TRANSCRIPTION_MODEL", "gemini-3.5-transcribe").strip()
 MAX_AUDIO_BYTES = 8 * 1024 * 1024
+MAX_CONTEXT_CHARS = 18_000
+# Set true only for a local, short-lived hackathon backend using synthetic or
+# thoroughly redacted data. Production authentication is not implemented here.
+ALLOW_UNAUTHENTICATED_DEV = os.getenv("SATHI_ALLOW_UNAUTHENTICATED_DEV", "false").strip().lower() == "true"
 client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
 
-app = FastAPI(title="Sathi AI Agent API", version="0.2.0")
+app = FastAPI(title="Sathi AI Assistant API", version="1.0.0")
 allowed_origins = [item.strip() for item in os.getenv("SATHI_ALLOWED_ORIGINS", "*").split(",") if item.strip()]
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
     allow_credentials=False,
     allow_methods=["GET", "POST", "OPTIONS"],
-    allow_headers=["Content-Type", "Authorization"],
+    allow_headers=["Content-Type", "Authorization", "X-Sathi-Prototype"],
 )
-
-DEMO_CLAIM = {
-    "claimId": "STH-26-10482",
-    "status": "Partially approved",
-    "requestedAmount": 68500,
-    "approvedAmount": 42000,
-    "unpaidAmount": 26500,
-    "statedReason": "The sample decision letter says the itemised hospital bill and discharge summary were not attached to the submitted claim.",
-    "requiredDocuments": ["Itemised hospital bill", "Discharge summary"],
-}
 
 
 def mask_pii(text: str) -> str:
-    """Basic second-layer masking. This is not a complete DLP system."""
+    """Best-effort additional masking. This does not replace a reviewed DLP layer."""
     text = re.sub(r"\b\d{4}[ -]?\d{4}[ -]?\d{4}\b", "[ID REDACTED]", text)
     text = re.sub(r"\b[A-Z]{5}\d{4}[A-Z]\b", "[PAN REDACTED]", text, flags=re.I)
     text = re.sub(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", "[EMAIL REDACTED]", text, flags=re.I)
@@ -58,99 +57,174 @@ def mask_pii(text: str) -> str:
     return text
 
 
-def detect_intent(message: str) -> str:
-    text = message.lower()
-    status_terms = ["status", "track", "tracking", "claim kaha", "claim kahan", "kaha tak", "kahan tak", "कहाँ तक", "कहां तक", "स्थिति", "स्टेटस", "अपडेट"]
-    docs_terms = ["document", "docs", "bill", "paper", "upload", "photo", "kagaz", "kagaz", "kya chahiye", "दस्तावेज", "कागज", "कागज़", "बिल", "फोटो", "डिस्चार्ज", "itemised", "itemized"]
-    draft_terms = ["draft", "appeal", "reconsider", "dobara review", "phir se review", "letter bana", "अपील", "ड्राफ्ट", "शिकायत पत्र"]
-    reject_terms = ["reject", "rejected", "rejection", "deny", "denied", "partial", "partly", "short pay", "kam paisa", "kam mila", "paisa kam", "kyu reject", "kyun reject", "why was", "why did", "reason", "रिजेक्ट", "अस्वीकृत", "कम मिला", "पैसे कम", "क्यों रिजेक्ट"]
-    if any(term in text for term in status_terms):
-        return "claim_status"
-    if any(term in text for term in docs_terms):
-        return "required_documents"
-    if any(term in text for term in draft_terms):
-        return "prepare_reconsideration"
-    if any(term in text for term in reject_terms):
-        return "explain_rejection"
-    return "general_help"
+def clean_text(value: object, limit: int = 7000) -> str:
+    if not isinstance(value, str):
+        return ""
+    return mask_pii(value.strip())[:limit]
 
 
-def action_for_intent(intent: str, language: str) -> tuple[int, str]:
-    labels = {
-        "claim_status": (3, "क्लेम ट्रैकर खोलें" if language == "hindi" else "Open claim tracker"),
-        "required_documents": (2, "दस्तावेज़ खोलें" if language == "hindi" else "Open documents"),
-        "prepare_reconsideration": (4, "ड्राफ्ट देखें" if language == "hindi" else "Review draft"),
-        "explain_rejection": (1, "क्लेम की समीक्षा करें" if language == "hindi" else "Review my claim"),
-        "general_help": (1, "क्लेम की समीक्षा करें" if language == "hindi" else "Review my claim"),
-    }
-    return labels.get(intent, labels["general_help"])
+def safe_history(history: list[dict[str, str]]) -> list[dict[str, str]]:
+    """Bounded in-memory turns for follow-up questions; do not persist or log."""
+    cleaned: list[dict[str, str]] = []
+    for turn in history[-10:]:
+        if not isinstance(turn, dict):
+            continue
+        role = str(turn.get("role", ""))
+        content = clean_text(turn.get("content"), 1500)
+        if role in ("user", "assistant") and content:
+            cleaned.append({"role": role, "content": content})
+    return cleaned
 
 
-def local_answer(message: str, language: str) -> dict:
-    intent = detect_intent(message)
-    if language == "hindi":
-        answers = {
-            "claim_status": "डेमो में क्लेम आंशिक रूप से मंजूर है: ₹68,500 मांगे गए, ₹42,000 मंजूर हुए और ₹26,500 अभी मंजूर नहीं हुए हैं। यह बीमा कंपनी का लाइव स्टेटस नहीं है।",
-            "required_documents": "डेमो निर्णय पत्र में अस्पताल का मदवार बिल और डिस्चार्ज समरी का ज़िक्र है। केवल वही दस्तावेज़ जोड़ें जो वास्तव में आपके पास हैं और असली पत्र से पुष्टि करें।",
-            "prepare_reconsideration": "मैं समीक्षा के लिए संपादन योग्य अनुरोध तैयार करने में मदद कर सकता हूँ। सभी तथ्यों और दस्तावेज़ों की जाँच करें। Sathi स्वयं दावा जमा नहीं करता।",
-            "explain_rejection": "डेमो पत्र के अनुसार अस्पताल का मदवार बिल और डिस्चार्ज समरी जमा नहीं हुए थे। यह राशि मंजूर न होने से संबंधित हो सकता है, लेकिन सही कारण और कवरेज की पुष्टि बीमा कंपनी ही कर सकती है।",
-            "general_help": "आप पूछ सकते हैं: क्लेम का स्टेटस क्या है, कौन से दस्तावेज़ चाहिए, क्लेम क्यों अस्वीकृत हुआ, या समीक्षा का ड्राफ्ट कैसे बनाएँ।",
-        }
-    elif language == "english":
-        answers = {
-            "claim_status": "The demo claim is partially approved: ₹68,500 requested, ₹42,000 approved and ₹26,500 not yet approved. This is not a live insurer status.",
-            "required_documents": "The sample decision letter mentions an itemised hospital bill and discharge summary. Attach only documents you actually have and verify the list against the real letter.",
-            "prepare_reconsideration": "I can help prepare an editable reconsideration request. Verify every statement and supporting document. Sathi does not submit a claim for you.",
-            "explain_rejection": "The sample decision letter says the itemised hospital bill and discharge summary were not attached. This may be relevant to the amount not approved, but only the insurer can confirm the exact reason and coverage.",
-            "general_help": "Ask: what is my claim status, which documents are needed, why was my claim rejected, or help me draft a reconsideration request.",
-        }
-    else:
-        answers = {
-            "claim_status": "Demo mein claim partially approved hai: ₹68,500 request hue the, ₹42,000 approve hue aur ₹26,500 abhi approve nahi hue. Yeh insurer ka live status nahi hai.",
-            "required_documents": "Sample decision letter mein itemised hospital bill aur discharge summary ka zikr hai. Sirf wahi documents attach karein jo aapke paas sach mein hain; real letter se verify karein.",
-            "prepare_reconsideration": "Main editable reconsideration draft banane mein help kar sakta hoon. Har fact aur document verify karein. Sathi claim khud submit nahi karta.",
-            "explain_rejection": "Sample letter ke mutabik itemised hospital bill aur discharge summary attach nahi hue the. Yeh amount approve na hone se relevant ho sakta hai, lekin exact reason aur coverage insurer hi confirm kar sakta hai.",
-            "general_help": "Aap Hinglish mein pooch sakte hain: claim status kya hai, kaun se documents chahiye, claim reject kyun hua, ya reconsideration draft bana do.",
-        }
-    action_index, action_label = action_for_intent(intent, language)
-    return {
-        "answer": answers[intent],
-        "intent": intent,
-        "actionIndex": action_index,
-        "actionLabel": action_label,
-        "mode": "local_rules",
-        "model": "",
-        "notice": "Gemini API key is not configured; deterministic demo guidance was used.",
-    }
+def safe_context(context: dict | None) -> dict:
+    """Accept only supported, bounded, user-supplied context; never add sample data."""
+    if not isinstance(context, dict):
+        return {}
+    safe: dict = {}
+    raw_docs = context.get("documentTexts", [])
+    docs: list[dict[str, str]] = []
+    if isinstance(raw_docs, list):
+        for item in raw_docs[:5]:
+            if not isinstance(item, dict):
+                continue
+            title = clean_text(item.get("title"), 120)
+            text = clean_text(item.get("text"), 6000)
+            if text:
+                docs.append({"title": title or "User-provided document", "text": text})
+    if docs:
+        safe["documentTexts"] = docs
+    names = context.get("attachedDocumentNames", [])
+    if isinstance(names, list):
+        safe_names = [clean_text(name, 120) for name in names[:20] if isinstance(name, str)]
+        safe_names = [name for name in safe_names if name]
+        if safe_names:
+            safe["attachedDocumentNames"] = safe_names
+    # Only accept explicitly user-entered, non-authoritative fields. The prompt is
+    # instructed not to present them as insurer-verified facts.
+    for key in ("userEnteredClaimStatus", "userEnteredReason", "insurerName"):
+        value = clean_text(context.get(key), 1200)
+        if value:
+            safe[key] = value
+    encoded = json.dumps(safe, ensure_ascii=False)
+    if len(encoded) > MAX_CONTEXT_CHARS:
+        # Document texts are already bounded but truncate the total defensively.
+        return {"contextNote": "Provided context was too large and was omitted; ask the user for a shorter excerpt."}
+    return safe
+
+
+Intent = Literal[
+    "claim_status", "required_documents", "prepare_reconsideration",
+    "explain_rejection", "document_review", "general_help"
+]
 
 
 class AgentRequest(BaseModel):
     message: str = Field(min_length=1, max_length=3000)
     language: Literal["hinglish", "hindi", "english"] = "hinglish"
+    cloudConsent: bool = False
     claimContext: dict | None = None
+    chatHistory: list[dict[str, str]] = Field(default_factory=list, max_length=12)
 
 
-class AgentPlan(BaseModel):
-    intent: Literal["claim_status", "required_documents", "prepare_reconsideration", "explain_rejection", "general_help"]
-    tool: Literal["get_claim_status", "get_required_documents", "explain_claim_reason", "prepare_reconsideration_draft", "none"]
-    reason: str = Field(description="A short internal routing rationale; do not expose chain-of-thought to the user.")
+class AgentOutput(BaseModel):
+    answer: str = Field(description="A useful, direct answer in the requested language. Do not invent personal claim facts.")
+    intent: Intent
+    actionIndex: int = Field(ge=1, le=4)
+    actionLabel: str
+    draft: str = Field(default="", description="A complete editable reconsideration draft only when the user asks for one; otherwise empty.")
+    evidenceUsed: list[str] = Field(default_factory=list)
+    notice: str = Field(description="Short data/source limitation, if relevant; do not claim a live insurer lookup happened.")
 
 
-def execute_demo_tool(tool_name: str) -> dict:
-    """Allow-listed demo tools. These never call an insurer and never submit a claim."""
-    if tool_name == "get_claim_status":
-        return {"tool": tool_name, "data": DEMO_CLAIM}
-    if tool_name == "get_required_documents":
-        return {"tool": tool_name, "requiredDocuments": DEMO_CLAIM["requiredDocuments"], "note": "List copied from fabricated sample claim data, not a real policy rule."}
-    if tool_name == "explain_claim_reason":
-        return {"tool": tool_name, "statedReason": DEMO_CLAIM["statedReason"], "warning": "This is an example insurer reason. No real policy clause has been retrieved or verified."}
-    if tool_name == "prepare_reconsideration_draft":
-        return {
-            "tool": tool_name,
-            "draft": "Subject: Request for review of health claim\n\nDear Claims Team,\n\nPlease review the decision on my health claim. Kindly confirm the documents or policy terms relied upon for the amount not approved. I will provide supporting documents that are available and relevant. Please share the next steps and a reference number for this request.\n\nRegards,\n[Policyholder name]\n[Claim reference]",
-            "warning": "Draft only. It has not been sent and requires the policyholder to verify every statement.",
-        }
-    return {"tool": "none", "note": "No claim tool needed."}
+class ClaimAnalyzeRequest(BaseModel):
+    cloudConsent: bool = False
+    insurerReason: str = Field(default="", max_length=5000)
+    uploadedDocuments: list[str] = Field(default_factory=list, max_length=30)
+    requiredDocuments: list[str] = Field(default_factory=list, max_length=30)
+    documentTexts: list[dict[str, str]] = Field(default_factory=list, max_length=5)
+
+
+class ClaimAnalysisOutput(BaseModel):
+    summary: str
+    missingDocuments: list[str] = Field(default_factory=list)
+    nextSteps: list[str] = Field(default_factory=list)
+    disclaimer: str
+    evidenceUsed: list[str] = Field(default_factory=list)
+
+
+SYSTEM_PROMPT = """You are Sathi, a careful health-insurance claim support assistant for customers in India.
+Help in the user's requested language: natural Roman-script Hinglish for 'hinglish',
+simple Devanagari Hindi for 'hindi', and plain English for 'english'. Be practical,
+kind, specific, and easy to understand. Answer the user's actual question, including
+questions that do not match a predefined list.
+
+TRUTH AND DATA RULES:
+- You have NO live connection to any insurer, TPA, hospital, bank, credit bureau, or claim portal.
+- Never invent a real claim status, claim ID, amount, policy clause, coverage decision, deadline,
+  document receipt, insurer response, or claim-submission result.
+- If asked for live claim status, say you cannot fetch it yet and explain that an authenticated
+  insurer/TPA integration or the insurer's portal is needed. You may explain how the user can check.
+- The supplied context, if any, is user-provided OCR or text. It is not verified by an insurer.
+- If a decision letter excerpt is provided, explain only what that excerpt supports and name the
+  document title as the source. If no letter text is available, ask the user to attach/read the
+  letter or paste a redacted excerpt; do not guess why their claim was rejected.
+- If asked for required documents and the policy/letter doesn't specify them, offer a general
+  starter checklist but clearly say exact requirements vary by insurer, claim type, and policy.
+- If asked to draft a reconsideration/appeal, create a usable editable draft grounded only in the
+  user's facts. Use bracketed placeholders for missing facts. Do not invent policy clauses, dates,
+  medical facts, amounts, or evidence. Do not state the draft has been sent.
+- Explain eligibility, exclusions, waiting periods, co-pay, sub-limits, or medical necessity only
+  when supported by user-provided wording. Encourage confirmation with the insurer for decisions.
+- Do not ask for Aadhaar, PAN, full policy number, bank credentials, OTP, or unnecessary medical IDs.
+- Never claim to have uploaded, submitted, escalated, or checked something unless an integrated
+  external service actually did that. This service has no such integrations.
+- Provide a short, concrete next step. Do not promise claim recovery or act as legal/medical advice.
+Return a concise but complete answer, usually 3-8 short sentences. Longer drafts are allowed when
+requested. EvidenceUsed must mention only supplied evidence, not invented citations.
+"""
+
+
+def detect_intent(message: str) -> Intent:
+    text = message.casefold()
+    if any(x in text for x in ["status", "track", "tracking", "kaha tak", "kahan tak", "claim kaha", "claim kahan", "स्टेटस", "स्थिति", "कहाँ तक", "कहां तक"]):
+        return "claim_status"
+    if any(x in text for x in ["draft", "appeal", "reconsider", "dobara review", "letter bana", "reply likh", "अपील", "ड्राफ्ट"]):
+        return "prepare_reconsideration"
+    if any(x in text for x in ["document", "docs", "bill", "paper", "kagaz", "कागज", "कागज़", "दस्तावेज", "डॉक्यूमेंट", "upload", "missing"]):
+        return "required_documents"
+    if any(x in text for x in ["reject", "rejected", "rejection", "denied", "deny", "partial", "partly", "short pay", "reason", "kyu", "kyun", "kyon", "क्यों", "अस्वीकृत", "रिजेक्ट"]):
+        return "explain_rejection"
+    if any(x in text for x in ["read this", "check this document", "analyse this", "analyze this", "is this letter", "document mein", "letter mein"]):
+        return "document_review"
+    return "general_help"
+
+
+def action_for_intent(intent: Intent, language: str) -> tuple[int, str]:
+    labels = {
+        "claim_status": (3, "ट्रैकर देखें" if language == "hindi" else "Open tracker"),
+        "required_documents": (2, "दस्तावेज़ देखें" if language == "hindi" else "Open documents"),
+        "prepare_reconsideration": (4, "ड्राफ्ट देखें" if language == "hindi" else "Review draft"),
+        "explain_rejection": (1, "क्लेम देखें" if language == "hindi" else "Review claim"),
+        "document_review": (2, "दस्तावेज़ देखें" if language == "hindi" else "Open documents"),
+        "general_help": (1, "क्लेम देखें" if language == "hindi" else "Review claim"),
+    }
+    return labels[intent]
+
+
+def require_prototype_access() -> None:
+    if not ALLOW_UNAUTHENTICATED_DEV:
+        raise HTTPException(
+            status_code=503,
+            detail="This backend has no production authentication. For local synthetic-data development only, set SATHI_ALLOW_UNAUTHENTICATED_DEV=true. Do not expose that mode publicly or send real customer data.",
+        )
+
+
+def require_model() -> None:
+    if client is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Live AI is not configured. Start the Sathi backend with GEMINI_API_KEY set in backend/.env. No demo answer was returned.",
+        )
 
 
 @app.get("/health")
@@ -161,103 +235,146 @@ def health() -> dict:
         "agentModel": GEMINI_MODEL if client else None,
         "transcriptionModelConfigured": client is not None,
         "transcriptionModel": GEMINI_TRANSCRIPTION_MODEL if client else None,
-        "mode": "gemini_agent" if client else "local_rules_only",
+        "insurerIntegrationConfigured": False,
+        "unauthenticatedDevelopmentMode": ALLOW_UNAUTHENTICATED_DEV,
+        "mode": "live_gemini" if client else "ai_not_configured",
     }
 
 
 @app.post("/v1/agent/chat")
 def chat(request: AgentRequest) -> dict:
-    message = mask_pii(request.message).strip()
+    require_prototype_access()
+    if not request.cloudConsent:
+        raise HTTPException(status_code=403, detail="Cloud analysis consent is required. Enable it in How Sathi works before sending this question.")
+    require_model()
+    message = clean_text(request.message, 3000)
     if not message:
         raise HTTPException(status_code=400, detail="Message is empty after validation.")
-    if client is None:
-        result = local_answer(message, request.language)
-        result["notice"] = "Gemini API key is missing on the backend; no language model ran. Local demo rules were used."
-        return result
-
-    context = request.claimContext or DEMO_CLAIM
+    context = safe_context(request.claimContext)
+    history = safe_history(request.chatHistory)
+    intent = detect_intent(message)
+    action_index, action_label = action_for_intent(intent, request.language)
+    prompt = (
+        f"User language preference: {request.language}.\n"
+        f"Recent conversation turns (PII masked; use only for conversational continuity): {json.dumps(history, ensure_ascii=False)}\n"
+        f"Detected topic for navigation only: {intent}.\n"
+        f"User's actual question (PII masked): {message}\n\n"
+        f"User-provided document/context excerpts (PII masked; may be empty): {json.dumps(context, ensure_ascii=False)}\n\n"
+        "Answer the actual question. Use OCR excerpts as evidence only when relevant. If asked about live status, "
+        "state there is no insurer/TPA integration and no status lookup was performed. Do not use or invent any sample claim. "
+        "For unknown/absent details, say what input is missing and how the customer can supply it safely. "
+        "If the user asks for an appeal/reconsideration letter, put the complete editable letter in the JSON 'draft' field, "
+        "and put a short explanation/next step in 'answer'. Otherwise set 'draft' to an empty string. "
+        f"Return intent={intent}, actionIndex={action_index}, actionLabel={action_label}."
+    )
     try:
-        plan_prompt = f"""You are the planner for Sathi, a health-insurance claim-recovery companion.
-Choose exactly one intent and one allowed demo tool. Do not make up policy wording, sources, claim state, coverage, legal advice, or likelihood of recovery.
-Tools are READ-ONLY except prepare_reconsideration_draft, which creates editable text only and never submits anything.
-Available demo context (fictional): {json.dumps(context, ensure_ascii=False)}
-User language preference: {request.language}. User message (PII masked): {message}
-Mapping:
-- status/tracker questions -> intent claim_status, tool get_claim_status
-- requested papers/bill/document questions -> intent required_documents, tool get_required_documents
-- ask to write appeal/reconsideration -> intent prepare_reconsideration, tool prepare_reconsideration_draft
-- rejection/partial amount/why questions -> intent explain_rejection, tool explain_claim_reason
-- otherwise -> general_help, tool none
-Return only the structured plan. Do not put internal reasoning into user-visible text."""
-        plan_result = client.interactions.create(
+        result = client.models.generate_content(
             model=GEMINI_MODEL,
-            input=plan_prompt,
-            response_format={
-                "type": "text",
-                "mime_type": "application/json",
-                "schema": AgentPlan.model_json_schema(),
-            },
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                system_instruction=SYSTEM_PROMPT,
+                response_mime_type="application/json",
+                response_schema=AgentOutput,
+                temperature=0.2,
+                max_output_tokens=1600,
+            ),
         )
-        plan = AgentPlan.model_validate_json(plan_result.output_text)
-        # The model proposes a tool, but the server enforces intent/tool pairing.
-        # Never execute an arbitrary name or a tool inconsistent with the selected intent.
-        expected_tools = {
-            "claim_status": "get_claim_status",
-            "required_documents": "get_required_documents",
-            "prepare_reconsideration": "prepare_reconsideration_draft",
-            "explain_rejection": "explain_claim_reason",
-            "general_help": "none",
-        }
-        safe_tool = expected_tools[plan.intent]
-        tool_result = execute_demo_tool(safe_tool)
-        final_prompt = f"""You are Sathi, a compassionate helper for the fictional demo claim. Reply in {request.language}: for hinglish use natural Roman-script Hinglish, for hindi use simple Devanagari Hindi, for english use simple English.
-Answer the user's actual question in 2-5 short sentences. Use only the tool result below. Do not invent policy clauses/citations, claim status updates or deadlines. Never guarantee recovery. Clearly say status and numbers are demo data. If the tool returns a draft, present it as editable only. End with one practical next step.
-User message: {message}
-Selected intent: {plan.intent}
-Tool result: {json.dumps(tool_result, ensure_ascii=False)}"""
-        final_result = client.interactions.create(model=GEMINI_MODEL, input=final_prompt)
-        action_index, action_label = action_for_intent(plan.intent, request.language)
-        answer = (final_result.output_text or "").strip()
-        if not answer:
-            raise ValueError("The model returned an empty answer.")
+        output_text = (result.text or "").strip()
+        if not output_text:
+            raise ValueError("The model returned an empty response.")
+        output = AgentOutput.model_validate_json(output_text)
+        # Do not trust the model to change which application screen a user opens.
+        output.intent = intent
+        output.actionIndex = action_index
+        output.actionLabel = action_label
+        output.notice = (output.notice or "").strip()
         return {
-            "answer": answer,
-            "intent": plan.intent,
-            "actionIndex": action_index,
-            "actionLabel": action_label,
+            **output.model_dump(),
             "mode": "gemini_agent",
             "model": GEMINI_MODEL,
-            "tool": safe_tool,
-            "toolResult": tool_result,
-            "notice": "Gemini selected an allow-listed demo tool. No insurer API is connected and no claim was submitted.",
+            "notice": output.notice or "AI-generated from your question and any provided document text. No insurer portal was queried.",
         }
+    except HTTPException:
+        raise
     except Exception as exc:
-        # Do not disclose prompts or user text in logs/responses.
-        raise HTTPException(status_code=502, detail=f"Gemini agent request failed ({type(exc).__name__}). Check backend model access and logs without logging user text.") from exc
+        # Avoid logging user prompts, OCR text, or generated content.
+        raise HTTPException(status_code=502, detail=f"Live AI request failed ({type(exc).__name__}). Check model access and backend logs without logging customer text.") from exc
+
+
+@app.post("/v1/claims/analyze")
+def analyze_claim(request: ClaimAnalyzeRequest) -> dict:
+    require_prototype_access()
+    if not request.cloudConsent:
+        raise HTTPException(status_code=403, detail="Cloud analysis consent is required before analysing claim text.")
+    require_model()
+    reason = clean_text(request.insurerReason, 5000)
+    uploaded = [clean_text(x, 120) for x in request.uploadedDocuments[:30] if clean_text(x, 120)]
+    requested = [clean_text(x, 120) for x in request.requiredDocuments[:30] if clean_text(x, 120)]
+    docs = []
+    for item in request.documentTexts[:5]:
+        title = clean_text(item.get("title", "User-provided document"), 120)
+        text = clean_text(item.get("text", ""), 6000)
+        if text:
+            docs.append({"title": title or "User-provided document", "text": text})
+    context = {
+        "insurerReasonTextProvidedByUser": reason,
+        "userAttachedDocumentNames": uploaded,
+        "userProvidedChecklist": requested,
+        "userProvidedDocumentText": docs,
+    }
+    prompt = (
+            "Review this customer-provided health insurance claim information. It may be incomplete and is not verified by the insurer. "
+            "Summarise what the text explicitly states; identify only document gaps supported by the supplied letter/checklist; "
+            "if there is no decision letter text or policy text, clearly say the analysis is incomplete and do not invent missing documents. "
+            "Provide practical next steps and a clear non-legal/non-insurer-decision disclaimer. Do not infer claim status or success likelihood. "
+            "Return the requested JSON fields: summary, missingDocuments, nextSteps, disclaimer, evidenceUsed.\n\n"
+            + json.dumps(context, ensure_ascii=False)
+    )
+    try:
+        result = client.models.generate_content(
+            model=GEMINI_MODEL,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                system_instruction=SYSTEM_PROMPT,
+                response_mime_type="application/json",
+                response_schema=ClaimAnalysisOutput,
+                temperature=0.2,
+                max_output_tokens=1600,
+            ),
+        )
+        output_text = (result.text or "").strip()
+        if not output_text:
+            raise ValueError("The model returned an empty response.")
+        output = ClaimAnalysisOutput.model_validate_json(output_text)
+        return {**output.model_dump(), "mode": "gemini_agent", "model": GEMINI_MODEL}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Live claim analysis failed ({type(exc).__name__}).") from exc
 
 
 @app.post("/v1/voice/transcribe")
 async def transcribe_voice(
-    audio: UploadFile = File(...),
-    language_hint: str = Form(default="hinglish"),
+        audio: UploadFile = File(...),
+        language_hint: str = Form(default="hinglish"),
+        cloudConsent: bool = Form(default=False),
 ) -> dict:
-    if client is None:
-        raise HTTPException(status_code=503, detail="Gemini is not configured. Add GEMINI_API_KEY to the backend .env file.")
+    require_prototype_access()
+    if not cloudConsent:
+        raise HTTPException(status_code=403, detail="Cloud voice consent is required before sending audio for transcription.")
+    require_model()
     if audio.content_type not in ("audio/wav", "application/octet-stream", "audio/x-wav"):
-        # Multipart clients may omit content type; the filename is also accepted below.
         if not (audio.filename or "").lower().endswith(".wav"):
             raise HTTPException(status_code=415, detail="Please send a WAV voice recording.")
-    # Read at most one byte beyond the limit so an unexpectedly large request
-    # is rejected without materialising an arbitrary upload into application memory.
     data = await audio.read(MAX_AUDIO_BYTES + 1)
     if len(data) > MAX_AUDIO_BYTES:
         raise HTTPException(status_code=413, detail="Keep voice recordings under 8 MB.")
     if not data:
         raise HTTPException(status_code=400, detail="The voice recording is empty.")
     prompt = (
-        "Transcribe this short Indian speech recording verbatim. The speaker may code-switch between Hindi and English (Hinglish), "
-        "including English financial terms inside Hindi sentences. Preserve the words and meaning; do not translate, summarise, answer, "
-        "or guess missing words. Return only the transcript. Language hint: " + language_hint[:30]
+            "Transcribe this short Indian speech recording verbatim. The speaker may code-switch between Hindi and English (Hinglish), "
+            "including English financial/insurance words inside Hindi sentences. Preserve the words, Roman-script English tokens, and meaning; "
+            "do not translate, summarise, answer, or guess missing words. Return only the transcript. Language hint: " + language_hint[:30]
     )
     try:
         response = client.interactions.create(
@@ -270,7 +387,8 @@ async def transcribe_voice(
         transcript = (response.output_text or "").strip()
         if not transcript:
             raise ValueError("empty transcript")
-        # The app does not explicitly persist the recording. Keep transcript out of logs.
         return {"text": transcript, "mode": "gemini_transcribe", "model": GEMINI_TRANSCRIPTION_MODEL}
+    except HTTPException:
+        raise
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Voice transcription failed ({type(exc).__name__}).") from exc

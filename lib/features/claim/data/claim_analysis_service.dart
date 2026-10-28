@@ -10,47 +10,27 @@ abstract interface class ClaimAnalysisService {
     required String insurerReason,
     required List<String> uploadedDocuments,
     required List<String> requiredDocuments,
+    required List<Map<String, String>> documentTexts,
   });
 }
 
-/// Safe local demo analysis: it uses only the seeded reason and document checklist.
-/// No photos, PDFs, identity data or policy documents are sent anywhere.
-class DemoClaimAnalysisService implements ClaimAnalysisService {
-  @override
-  Future<ClaimAnalysis> analyze({
-    required String claimId,
-    required String insurerReason,
-    required List<String> uploadedDocuments,
-    required List<String> requiredDocuments,
-  }) async {
-    await Future<void>.delayed(const Duration(milliseconds: 700));
-    final missing = requiredDocuments.where((name) => !uploadedDocuments.contains(name)).toList();
-    final summary = missing.isEmpty
-        ? 'The demo checklist shows all required document categories as attached. Compare each file with the insurer’s decision letter before requesting reconsideration.'
-        : 'The demo decision text mentions missing evidence. Your checklist still shows ${missing.length} required document category${missing.length == 1 ? '' : 'ies'} to add: ${missing.join(', ')}. This could be relevant to the stated reason, but only the insurer can confirm what is required under your policy.';
-    return ClaimAnalysis(
-      summary: summary,
-      missingDocuments: missing,
-      nextSteps: [
-        if (missing.isNotEmpty) 'Collect the listed documents from the hospital or your records.',
-        'Compare the decision letter with the actual policy wording and exclusions.',
-        'Edit the reconsideration draft so every statement is accurate and supported by evidence.',
-        'Submit using the insurer’s official grievance or claim channel and keep the acknowledgement.',
-        'If unresolved, check the applicable insurer grievance and official escalation process.',
-      ],
-      disclaimer: 'Prototype guidance only. This is not an insurer decision, medical advice or legal advice. Do not assume a missing document is the only reason for a short payment. Confirm requirements and deadlines with the insurer.',
-    );
-  }
-}
-
-/// Optional adapter for a backend you control. Do not point this directly at an LLM.
-/// The backend must authenticate, validate consent, mask PII and enforce access control.
+/// Live Gemini-backed analysis through the Sathi API. There is intentionally no
+/// silent canned-answer fallback: if backend/model access is unavailable, the UI
+/// receives an actionable error instead of a fabricated analysis.
 class ApiClaimAnalysisService implements ClaimAnalysisService {
-  ApiClaimAnalysisService({required this.baseUrl, http.Client? client, this.tokenProvider}) : _client = client ?? http.Client();
+  ApiClaimAnalysisService({
+    required this.baseUrl,
+    http.Client? client,
+    this.tokenProvider,
+  }) : _client = client ?? http.Client();
 
   final String baseUrl;
   final http.Client _client;
   final Future<String?> Function()? tokenProvider;
+  static const _allowUnauthenticatedDev = bool.fromEnvironment(
+    'SATHI_ALLOW_UNAUTHENTICATED_DEV',
+    defaultValue: false,
+  );
 
   @override
   Future<ClaimAnalysis> analyze({
@@ -58,41 +38,58 @@ class ApiClaimAnalysisService implements ClaimAnalysisService {
     required String insurerReason,
     required List<String> uploadedDocuments,
     required List<String> requiredDocuments,
+    required List<Map<String, String>> documentTexts,
   }) async {
     if (baseUrl.trim().isEmpty) {
-      throw StateError('SATHI_API_BASE_URL is missing. Set it with --dart-define or use demo mode.');
+      throw StateError('Live claim analysis is not connected. Configure SATHI_API_BASE_URL and start the backend.');
     }
-    // Fail closed: live mode must supply an authenticated token provider.
-    // Never send a health-claim request to an unauthenticated endpoint.
-    final getToken = tokenProvider;
-    if (getToken == null) {
-      throw StateError('Live API mode needs an authenticated token provider. Configure your sign-in/backend integration first.');
+
+    final headers = <String, String>{'content-type': 'application/json'};
+    if (tokenProvider != null) {
+      final token = await tokenProvider!.call();
+      if (token == null || token.isEmpty) {
+        throw StateError('You need to sign in before using cloud claim analysis.');
+      }
+      headers['authorization'] = 'Bearer $token';
+    } else if (!_allowUnauthenticatedDev) {
+      throw StateError(
+        'No authenticated session is configured. For local synthetic-data development only, run with --dart-define=SATHI_ALLOW_UNAUTHENTICATED_DEV=true. Do not use that setting in a public deployment or with real customer data.',
+      );
     }
-    final token = await getToken();
-    if (token == null || token.isEmpty) {
-      throw StateError('No active sign-in token is available. Sign in before using cloud analysis.');
-    }
+
     final base = Uri.parse(baseUrl.endsWith('/') ? baseUrl : '$baseUrl/');
     final uri = base.resolve('v1/claims/analyze');
-    final headers = <String, String>{
-      'content-type': 'application/json',
-      'authorization': 'Bearer $token',
-    };
-    final response = await _client.post(
+    final response = await _client
+        .post(
       uri,
       headers: headers,
       body: jsonEncode({
-        'claimId': claimId,
+        'cloudConsent': true,
+        // The current prototype deliberately does not send the seeded claim ID
+        // or the hard-coded demo reason. Only user-read OCR text and actual
+        // attached filenames are included.
         'insurerReason': insurerReason,
         'uploadedDocuments': uploadedDocuments,
         'requiredDocuments': requiredDocuments,
+        'documentTexts': documentTexts,
       }),
-    ).timeout(const Duration(seconds: 20));
+    )
+        .timeout(const Duration(seconds: 45));
+
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw Exception('Analysis service returned HTTP ${response.statusCode}.');
+      String detail = 'Live claim analysis failed (HTTP ${response.statusCode}).';
+      try {
+        final decoded = jsonDecode(response.body);
+        if (decoded is Map<String, dynamic> && decoded['detail'] is String) {
+          detail = decoded['detail'] as String;
+        }
+      } catch (_) {}
+      throw StateError(detail);
     }
-    final body = jsonDecode(response.body);
-    if (body is! Map<String, dynamic>) throw const FormatException('Invalid analysis response.');
-    return ClaimAnalysis.fromJson(body);
+    final decoded = jsonDecode(response.body);
+    if (decoded is! Map<String, dynamic> || decoded['mode'] != 'gemini_agent') {
+      throw const FormatException('Backend did not confirm a live AI analysis.');
+    }
+    return ClaimAnalysis.fromJson(decoded);
   }
 }

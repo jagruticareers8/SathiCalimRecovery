@@ -26,14 +26,20 @@ class TrackerPage extends StatelessWidget {
           Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             const Text('Current claim status', style: TextStyle(color: AppColors.muted, fontSize: 11)),
             const SizedBox(height: 4),
-            Text(claim.reconsiderationMarkedSubmitted ? 'Reconsideration marked as submitted' : claim.claimStatus, style: const TextStyle(color: AppColors.navy, fontWeight: FontWeight.w900, fontSize: 15)),
+            Text(claim.reconsiderationMarkedSubmitted ? 'You marked reconsideration as submitted' : 'No live claim status available', style: const TextStyle(color: AppColors.navy, fontWeight: FontWeight.w900, fontSize: 15)),
             const SizedBox(height: 3),
-            const Text('Demo tracker — no live insurer connection', style: TextStyle(color: AppColors.muted, fontSize: 10)),
+            const Text('This log shows only actions recorded in this app, not insurer updates.', style: TextStyle(color: AppColors.muted, fontSize: 10)),
           ])),
         ])),
         const SizedBox(height: 20),
         const SectionHeading('Activity timeline'),
         const SizedBox(height: 10),
+        if (claim.timeline.isEmpty)
+          SathiCard(child: const Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Icon(Icons.info_outline_rounded, color: AppColors.teal),
+            SizedBox(width: 10),
+            Expanded(child: Text('No activity has been recorded yet. Attach a document or mark your own next step to create a local activity entry. Live insurer tracking will require an authenticated insurer/TPA integration.', style: TextStyle(color: AppColors.muted, fontSize: 12, height: 1.5))),
+          ])),
         ...List.generate(claim.timeline.length, (index) {
           final event = claim.timeline[index];
           final isLast = index == claim.timeline.length - 1;
@@ -61,7 +67,7 @@ class TrackerPage extends StatelessWidget {
         Container(padding: const EdgeInsets.all(14), decoration: BoxDecoration(color: AppColors.amberBg, borderRadius: BorderRadius.circular(16)), child: const Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Icon(Icons.lightbulb_outline_rounded, color: AppColors.amber),
           SizedBox(width: 9),
-          Expanded(child: Text('After submitting through the insurer’s official channel, keep the acknowledgement/reference number and copies of all files. This prototype does not fetch live claim status.', style: TextStyle(fontSize: 11, height: 1.45, color: AppColors.ink))),
+          Expanded(child: Text('After submitting through the insurer’s official channel, keep the acknowledgement/reference number and copies of all files. This app does not fetch live claim status without an insurer/TPA integration.', style: TextStyle(fontSize: 11, height: 1.45, color: AppColors.ink))),
         ])),
       ]),
     );

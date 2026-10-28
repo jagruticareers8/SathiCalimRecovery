@@ -55,8 +55,8 @@ class _TechnologyPageState extends State<TechnologyPage> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: Text(value
-            ? (_backendConfigured ? 'Cloud text analysis enabled. The backend still needs a valid Gemini key to use the model.' : 'Preference saved, but no backend URL is configured. Sathi will continue using local demo rules.')
-            : 'Cloud text analysis switched off. Local demo rules will be used.'),
+            ? (_backendConfigured ? 'Cloud text analysis enabled. Gemini still requires a valid backend API key.' : 'Preference saved, but no backend URL is configured. Live AI will return a connection error until configured.')
+            : 'Cloud text analysis switched off. Sathi will not send the question to Gemini.'),
       ));
     } catch (error) {
       if (!mounted) return;
@@ -126,8 +126,8 @@ class _TechnologyPageState extends State<TechnologyPage> {
           const _StackLayer(
             title: 'Cloud AI', icon: Icons.cloud_outlined, subtitle: 'Explain using verified policy sources',
             chips: ['LLM API', 'RAG pipeline', 'Vector search', 'Clause citations', 'Guardrails'],
-            note: 'A real Gemini-backed agent service is included in backend/main.py. It uses a model planning step and executes only four allow-listed demo tools. Gemini is active only when you configure GEMINI_API_KEY and run the backend. RAG, vector search, verified clause retrieval and live insurer APIs are not connected yet.',
-            active: <String>{},
+            note: 'The Gemini agent generates responses from the actual question and any user-reviewed, PII-masked OCR excerpts supplied by the app. It does not inject a fictional claim into the prompt. RAG, verified policy-clause retrieval, user authentication, and live insurer APIs are not connected yet.',
+            active: {'LLM API', 'Guardrails'},
           ),
           const SizedBox(height: 12),
           const _StackLayer(
@@ -140,15 +140,15 @@ class _TechnologyPageState extends State<TechnologyPage> {
           SathiCard(color: const Color(0xFFFFF5DD), child: const Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Icon(Icons.info_outline_rounded, color: Color(0xFF9A6700)),
             SizedBox(width: 10),
-            Expanded(child: Text('Model status: the cloud Gemini agent code is included, but it runs only when you start the backend and configure a valid GEMINI_API_KEY. On-device Gemma is not bundled. MediaPipe LLM Inference is in maintenance-only mode; evaluate LiteRT-LM for a new on-device model. The current demo agent uses fictional claim data and no real policy retrieval.', style: TextStyle(color: AppColors.ink, fontSize: 12, height: 1.5))),
+            Expanded(child: Text('Model status: Gemini runs only when the backend is started and a valid GEMINI_API_KEY is configured. The assistant does not return canned text when live AI is unavailable. No insurer status API, authenticated customer account, or verified-policy RAG is connected. On-device Gemma is not bundled.', style: TextStyle(color: AppColors.ink, fontSize: 12, height: 1.5))),
           ])),
           const SizedBox(height: 16),
           SathiCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             const Row(children: [Icon(Icons.lock_outline_rounded, color: AppColors.teal), SizedBox(width: 8), Expanded(child: Text('Your privacy choice', style: TextStyle(color: AppColors.navy, fontWeight: FontWeight.w900, fontSize: 16)))]),
             const SizedBox(height: 8),
             Text(_backendConfigured
-                ? 'The app can call the configured Sathi backend. Text goes to Gemini only when this switch is on and the backend has a valid API key. The backend uses fictional demo claim data; no live insurer is connected.'
-                : 'A backend URL is not configured. Turning this on stores your preference only; the app will continue using local demo rules until SATHI_API_BASE_URL is set.', style: const TextStyle(color: AppColors.muted, fontSize: 12, height: 1.5)),
+                ? 'The app sends your question and any OCR text you explicitly read on-device to the configured Gemini backend only after this switch is on. The app will not silently substitute a demo answer if the backend fails. No live insurer status connection exists.'
+                : 'A backend URL is not configured. Turning this on stores the preference only. Live answers require SATHI_API_BASE_URL, a running backend and a valid backend API key.', style: const TextStyle(color: AppColors.muted, fontSize: 12, height: 1.5)),
             const SizedBox(height: 10),
             if (_consentLoading)
               const LinearProgressIndicator()
@@ -156,7 +156,7 @@ class _TechnologyPageState extends State<TechnologyPage> {
               SwitchListTile.adaptive(
                 contentPadding: EdgeInsets.zero,
                 title: const Text('Allow redacted cloud analysis', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
-                subtitle: Text(_allowCloudConsent ? (_backendConfigured ? 'On · backend URL configured; Gemini key still required server-side' : 'On · no backend URL yet, local rules remain active') : 'Off · use local demo guidance'),
+                subtitle: Text(_allowCloudConsent ? (_backendConfigured ? 'On · backend URL set; Gemini key required server-side' : 'On · no backend URL; live answers unavailable') : 'Off · cloud AI is disabled'),
                 value: _allowCloudConsent,
                 onChanged: _savingConsent ? null : _saveConsent,
               ),
@@ -185,7 +185,7 @@ class _TechnologyPageState extends State<TechnologyPage> {
           const SizedBox(height: 10),
           const _StepLine(number: '1', title: 'Add a document', description: 'Take a photo or choose an image/PDF from your phone.'),
           const _StepLine(number: '2', title: 'Read and check', description: 'For images, on-device OCR can extract text. Common identifiers are masked in the preview.'),
-          const _StepLine(number: '3', title: 'Understand the reason', description: 'With the backend running and API key configured, the Gemini agent selects a safe demo tool and explains its result. Without that setup, local rules are used. Verified policy RAG is not yet connected.'),
+          const _StepLine(number: '3', title: 'Understand the reason', description: 'With cloud consent enabled, the backend sends your question and any OCR text you reviewed to Gemini. If the backend/model is unavailable, Sathi shows an error instead of a canned answer. Verified policy retrieval and insurer status APIs are not yet connected.'),
           const _StepLine(number: '4', title: 'Review the next step', description: 'Edit your draft, submit it through the insurer’s official channel, then record your progress.'),
           const SizedBox(height: 12),
           FilledButton.icon(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.arrow_back_rounded), label: const Text('Back to Sathi')),
@@ -206,29 +206,7 @@ class _StackLayer extends StatelessWidget {
   final Set<String> active;
 
 
-  // Future<void> _saveVoiceConsent(bool value) async {
-  //   setState(() {
-  //     _savingVoiceConsent = true;
-  //     _allowVoiceConsent = value;
-  //   });
-  //   try {
-  //     await _privacyStore.writeVoiceConsent(value);
-  //     if (!mounted) return;
-  //     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-  //       content: Text(value
-  //           ? (_backendConfigured ? 'AI Hinglish voice enabled. Short recordings will be sent to your configured Sathi backend for transcription.' : 'Preference saved, but no backend URL is configured. Device speech will be used instead.')
-  //           : 'Cloud voice transcription switched off. Device speech will be used instead.'),
-  //     ));
-  //   } catch (error) {
-  //     if (!mounted) return;
-  //     setState(() => _allowVoiceConsent = false);
-  //     ScaffoldMessenger.of(context).showSnackBar(
-  //       SnackBar(content: Text('Could not save voice preference: $error')),
-  //     );
-  //   } finally {
-  //     if (mounted) setState(() => _savingVoiceConsent = false);
-  //   }
-  // }
+
 
   @override
   Widget build(BuildContext context) {

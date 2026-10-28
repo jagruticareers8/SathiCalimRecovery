@@ -20,8 +20,8 @@ class DocumentsPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final claim = context.watch<ClaimCubit>().state;
-    final requiredCount = claim.documents.where((d) => d.required).length;
-    final completedCount = claim.documents.where((d) => d.required && d.uploaded).length;
+    final requiredCount = claim.documents.length;
+    final completedCount = claim.documents.where((d) => d.uploaded).length;
 
     return SingleChildScrollView(
       padding: const EdgeInsets.fromLTRB(20, 24, 20, 28),
@@ -34,11 +34,11 @@ class DocumentsPage extends StatelessWidget {
         const SizedBox(height: 18),
         SathiCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Row(children: [
-            Expanded(child: Text('$completedCount of $requiredCount required categories attached', style: const TextStyle(fontWeight: FontWeight.w800, color: AppColors.navy))),
-            Text('${(claim.documentProgress * 100).round()}%', style: const TextStyle(color: AppColors.teal, fontWeight: FontWeight.w900)),
+            Expanded(child: Text('$completedCount of $requiredCount common document types attached', style: const TextStyle(fontWeight: FontWeight.w800, color: AppColors.navy))),
+            Text('${(requiredCount == 0 ? 0 : completedCount / requiredCount * 100).round()}%', style: const TextStyle(color: AppColors.teal, fontWeight: FontWeight.w900)),
           ]),
           const SizedBox(height: 10),
-          ClipRRect(borderRadius: BorderRadius.circular(8), child: LinearProgressIndicator(value: claim.documentProgress, minHeight: 7, backgroundColor: AppColors.border, color: AppColors.teal)),
+          ClipRRect(borderRadius: BorderRadius.circular(8), child: LinearProgressIndicator(value: requiredCount == 0 ? 0 : completedCount / requiredCount, minHeight: 7, backgroundColor: AppColors.border, color: AppColors.teal)),
         ])),
         const SizedBox(height: 15),
         ...claim.documents.map((document) => Padding(
@@ -49,7 +49,7 @@ class DocumentsPage extends StatelessWidget {
         Container(padding: const EdgeInsets.all(14), decoration: BoxDecoration(color: AppColors.mint, borderRadius: BorderRadius.circular(16)), child: const Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Icon(Icons.privacy_tip_outlined, color: AppColors.teal, size: 20),
           SizedBox(width: 9),
-          Expanded(child: Text('Privacy: image text is read on your device only when you tap ‘Read text on device’. Text is masked in the preview. This prototype does not upload documents to the cloud.', style: TextStyle(fontSize: 11, color: AppColors.tealDark, height: 1.45))),
+          Expanded(child: Text('Privacy: OCR runs on your device. The file itself is not uploaded by this screen. If you enable cloud analysis and ask Sathi, masked OCR text may be sent to your configured AI backend—review it before enabling consent.', style: TextStyle(fontSize: 11, color: AppColors.tealDark, height: 1.45))),
         ])),
       ]),
     );
@@ -80,6 +80,7 @@ class DocumentsPage extends StatelessWidget {
             Wrap(spacing: 10, runSpacing: 0, children: [
               TextButton.icon(onPressed: () => _showPicker(context, document), icon: const Icon(Icons.change_circle_outlined, size: 16), label: const Text('Replace'), style: TextButton.styleFrom(padding: EdgeInsets.zero, visualDensity: VisualDensity.compact)),
               if (_canRunOcr(document)) TextButton.icon(onPressed: () => _readOcr(context, document), icon: const Icon(Icons.document_scanner_outlined, size: 16), label: const Text('Read text on device'), style: TextButton.styleFrom(padding: EdgeInsets.zero, visualDensity: VisualDensity.compact)),
+              TextButton.icon(onPressed: () => _pasteDocumentText(context, document), icon: const Icon(Icons.content_paste_go_outlined, size: 16), label: const Text('Paste document text'), style: TextButton.styleFrom(padding: EdgeInsets.zero, visualDensity: VisualDensity.compact)),
               TextButton.icon(onPressed: () => context.read<ClaimCubit>().removeDocument(document.id), icon: const Icon(Icons.delete_outline, size: 16), label: const Text('Remove'), style: TextButton.styleFrom(foregroundColor: AppColors.red, padding: EdgeInsets.zero, visualDensity: VisualDensity.compact)),
             ]),
           ] else ...[
@@ -119,6 +120,9 @@ class DocumentsPage extends StatelessWidget {
     try {
       final text = await _ocrService.readImageText(path);
       final maskedText = PiiMasker.mask(text);
+      if (context.mounted) {
+        context.read<ClaimCubit>().saveExtractedText(document.id, maskedText);
+      }
       if (context.mounted) Navigator.of(context, rootNavigator: true).pop();
       if (!context.mounted) return;
       await showDialog<void>(
@@ -150,6 +154,52 @@ class DocumentsPage extends StatelessWidget {
     }
   }
 
+  Future<void> _pasteDocumentText(BuildContext context, ClaimDocument document) async {
+    final textController = TextEditingController(text: document.extractedText ?? '');
+    try {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: Text('Add text from ${document.title}'),
+          content: SizedBox(
+            width: 520,
+            child: SingleChildScrollView(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                const Text(
+                  'For a PDF or a scanned document, copy the relevant decision-letter/policy text and paste it here. It stays on this device until you explicitly enable cloud analysis and ask Sathi.',
+                  style: TextStyle(fontSize: 12, height: 1.45),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: textController,
+                  minLines: 8,
+                  maxLines: 14,
+                  keyboardType: TextInputType.multiline,
+                  decoration: const InputDecoration(
+                    hintText: 'Paste a redacted excerpt from the insurer letter…',
+                    alignLabelWithHint: true,
+                  ),
+                ),
+              ]),
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
+            FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Save text')),
+          ],
+        ),
+      );
+      if (confirmed != true || !context.mounted) return;
+      final masked = PiiMasker.mask(textController.text.trim());
+      context.read<ClaimCubit>().saveExtractedText(document.id, masked);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(masked.isEmpty ? 'No text saved.' : 'Masked text saved on this device. Cloud sharing still requires consent.')),
+      );
+    } finally {
+      textController.dispose();
+    }
+  }
+
   Future<void> _showPicker(BuildContext context, ClaimDocument document) async {
     final choice = await showModalBottomSheet<String>(
       context: context,
@@ -159,7 +209,7 @@ class DocumentsPage extends StatelessWidget {
         child: Column(mainAxisSize: MainAxisSize.min, children: [
           const Align(alignment: Alignment.centerLeft, child: Text('Attach a document', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 18, color: AppColors.navy))),
           const SizedBox(height: 6),
-          const Align(alignment: Alignment.centerLeft, child: Text('Demo only: the file will not be uploaded.', style: TextStyle(color: AppColors.muted, fontSize: 12))),
+          const Align(alignment: Alignment.centerLeft, child: Text('The file stays on this device. This screen does not submit it to the insurer.', style: TextStyle(color: AppColors.muted, fontSize: 12))),
           const SizedBox(height: 14),
           ListTile(leading: const Icon(Icons.photo_camera_outlined, color: AppColors.teal), title: const Text('Take a photo'), onTap: () => Navigator.pop(context, 'camera')),
           ListTile(leading: const Icon(Icons.photo_library_outlined, color: AppColors.teal), title: const Text('Choose a photo'), onTap: () => Navigator.pop(context, 'gallery')),
