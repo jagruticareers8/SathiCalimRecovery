@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -96,27 +97,36 @@ class SathiAgentService {
       throw StateError('Sathi live AI is not connected. Start the backend and set SATHI_API_BASE_URL when running Flutter.');
     }
 
-    final response = await _client
-        .post(
-      _endpoint('/v1/agent/chat'),
-      headers: const {'content-type': 'application/json'},
-      body: jsonEncode({
-        'message': safeMessage,
-        'language': language.apiValue,
-        'cloudConsent': true,
-        // The app must pass only user-supplied OCR/text context here. No seeded
-        // claim ID, balance, status, or fictional decision letter is injected.
-        'claimContext': _safeContext(claimContext),
-        'chatHistory': chatHistory.take(10).map((turn) {
-          final content = PiiMasker.mask((turn['content'] ?? '').trim());
-          return {
-            'role': turn['role'] == 'assistant' ? 'assistant' : 'user',
-            'content': content.substring(0, content.length > 1500 ? 1500 : content.length),
-          };
-        }).toList(),
-      }),
-    )
-        .timeout(const Duration(seconds: 60));
+    late final http.Response response;
+    try {
+      response = await _client
+          .post(
+        _endpoint('/v1/agent/chat'),
+        headers: const {'content-type': 'application/json'},
+        body: jsonEncode({
+          'message': safeMessage,
+          'language': language.apiValue,
+          'cloudConsent': true,
+          // Send only user-supplied, reviewed OCR/text context. No seeded
+          // claim ID, amount, status, or fictional decision letter is injected.
+          'claimContext': _safeContext(claimContext),
+          'chatHistory': chatHistory.take(10).map((turn) {
+            final content = PiiMasker.mask((turn['content'] ?? '').trim());
+            return {
+              'role': turn['role'] == 'assistant' ? 'assistant' : 'user',
+              'content': content.substring(0, content.length > 1500 ? 1500 : content.length),
+            };
+          }).toList(),
+        }),
+      )
+      // Model generation can take longer than ordinary REST requests.
+      // Keep this longer than the backend's 120-second model request timeout.
+          .timeout(const Duration(seconds: 135));
+    } on TimeoutException {
+      throw StateError(
+        'Sathi AI took longer than 135 seconds. Check the backend timing log and model access before retrying.',
+      );
+    }
 
     if (response.statusCode < 200 || response.statusCode >= 300) {
       String detail = 'Live AI request failed (HTTP ${response.statusCode}).';

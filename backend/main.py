@@ -14,18 +14,21 @@ from __future__ import annotations
 
 import base64
 import json
+import logging
 import os
 import re
+import time
 from typing import Literal
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from google import genai
 from google.genai import types
 from pydantic import BaseModel, Field
 
 load_dotenv()
+logger = logging.getLogger("uvicorn.error")
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-flash").strip()
@@ -35,7 +38,26 @@ MAX_CONTEXT_CHARS = 18_000
 # Set true only for a local, short-lived hackathon backend using synthetic or
 # thoroughly redacted data. Production authentication is not implemented here.
 ALLOW_UNAUTHENTICATED_DEV = os.getenv("SATHI_ALLOW_UNAUTHENTICATED_DEV", "false").strip().lower() == "true"
-client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
+
+
+def safe_provider_error(exc: Exception) -> str:
+    """Summarize provider errors without logging user prompts or API credentials."""
+    message = str(exc)
+    if GEMINI_API_KEY:
+        message = message.replace(GEMINI_API_KEY, "[REDACTED_API_KEY]")
+    message = re.sub(r"(?i)bearer\s+\S+", "Bearer [REDACTED]", message)
+    return message[:800] or "(no provider message)"
+# Google Gen AI SDK HttpOptions.timeout is configured in milliseconds.
+# Bound model requests so the Flutter client can wait slightly longer and
+# display a useful error if the model itself takes too long.
+client = (
+    genai.Client(
+        api_key=GEMINI_API_KEY,
+        http_options=types.HttpOptions(timeout=120_000),
+    )
+    if GEMINI_API_KEY
+    else None
+)
 
 app = FastAPI(title="Sathi AI Assistant API", version="1.0.0")
 allowed_origins = [item.strip() for item in os.getenv("SATHI_ALLOWED_ORIGINS", "*").split(",") if item.strip()]
@@ -46,6 +68,20 @@ app.add_middleware(
     allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["Content-Type", "Authorization", "X-Sathi-Prototype"],
 )
+
+
+@app.middleware("http")
+async def log_request_duration(request: Request, call_next):
+    """Log timing/status only; never log questions, OCR, audio, or response text."""
+    started = time.perf_counter()
+    response = await call_next(request)
+    elapsed = time.perf_counter() - started
+    if request.url.path in {"/v1/agent/chat", "/v1/claims/analyze", "/v1/voice/transcribe"}:
+        print(
+            f"[sathi-timing] {request.method} {request.url.path} "
+            f"status={response.status_code} duration_s={elapsed:.1f}"
+        )
+    return response
 
 
 def mask_pii(text: str) -> str:
@@ -297,8 +333,9 @@ def chat(request: AgentRequest) -> dict:
     except HTTPException:
         raise
     except Exception as exc:
-        # Avoid logging user prompts, OCR text, or generated content.
-        raise HTTPException(status_code=502, detail=f"Live AI request failed ({type(exc).__name__}). Check model access and backend logs without logging customer text.") from exc
+        # Log provider error metadata only, never the user's prompt, OCR, or response.
+        logger.error("Sathi Gemini chat failed (%s): %s", type(exc).__name__, safe_provider_error(exc))
+        raise HTTPException(status_code=502, detail=f"Live AI request failed ({type(exc).__name__}). See backend terminal for sanitized provider error details.") from exc
 
 
 @app.post("/v1/claims/analyze")
@@ -350,7 +387,8 @@ def analyze_claim(request: ClaimAnalyzeRequest) -> dict:
     except HTTPException:
         raise
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"Live claim analysis failed ({type(exc).__name__}).") from exc
+        logger.error("Sathi Gemini claim analysis failed (%s): %s", type(exc).__name__, safe_provider_error(exc))
+        raise HTTPException(status_code=502, detail=f"Live claim analysis failed ({type(exc).__name__}). See backend terminal for sanitized provider error details.") from exc
 
 
 @app.post("/v1/voice/transcribe")
@@ -391,4 +429,5 @@ async def transcribe_voice(
     except HTTPException:
         raise
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"Voice transcription failed ({type(exc).__name__}).") from exc
+        logger.error("Sathi Gemini voice transcription failed (%s): %s", type(exc).__name__, safe_provider_error(exc))
+        raise HTTPException(status_code=502, detail=f"Voice transcription failed ({type(exc).__name__}). See backend terminal for sanitized provider error details.") from exc
