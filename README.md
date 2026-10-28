@@ -1,148 +1,162 @@
-# Sathi — Hinglish Voice + Gemini Agent MVP
+# Sathi — Local-first health-insurance claim companion
 
-Sathi is a Flutter demo for one focused problem: helping a customer understand a partially approved/rejected health-insurance claim, check sample documents, prepare an editable reconsideration letter, and track next steps.
+Sathi is a Flutter MVP for one focused journey: help a person organise a health-insurance decision letter, understand text they supplied, prepare an editable reconsideration draft, and keep a private record of their own next steps.
 
-This release corrects the earlier demo limitation: the old “assistant” was a local keyword router only. This version contains (1) a more robust local Hinglish intent router, (2) device speech input with locale discovery and clear error states, (3) an optional cloud audio transcription route intended for Hindi-English code-switching, and (4) a real server-side Gemini model agent that plans a tool, executes an allow-listed demo tool, then creates a grounded response.
+## Privacy design
 
-> **Truth-in-demo:** The Gemini model runs only after you configure `GEMINI_API_KEY` on the backend and start the server. Without this, the app identifies responses as `LOCAL DEMO` and uses deterministic rules. It does not bundle a Gemma model. The only claim data available to the agent is fictional sample data; no real insurer API, RAG/vector database, or claim submission is connected.
+**Private by default. Local first. Online only for a separate general-information question after confirmation.**
 
-## The easy customer journey
+1. The user adds a document. Sathi copies it into its app-private vault and encrypts that copy with AES-GCM. The vault key is held in Android Keystore/iOS Keychain via `flutter_secure_storage`.
+2. For supported images, OCR runs on-device with Google ML Kit. The extracted text is PII-masked and saved in the encrypted local vault. For PDFs, the user can paste text they extracted elsewhere; this archive does not include a PDF text-extraction engine.
+3. Sathi searches local document text and an offline FAQ first. This uses local keyword/sentence retrieval and rules; it is not a fully offline generative LLM.
+4. A question that appears personal or claim-specific remains local. If a generic question is not found locally and the user has enabled online lookup, Sathi shows a confirmation dialog with the exact question. Only that question is sent to the backend/Gemini. No files, OCR, claim context, document names, or chat history are attached.
+5. Cloud voice transcription is optional and separately consented. It sends a short WAV to the configured backend for Gemini transcription only after the user chooses General information mode and confirms the upload. Do not speak personal medical/claim details during cloud transcription.
+6. The reconsideration letter is a local editable draft. The tracker records actions made by the user on the device; it does not show verified insurer status.
 
-1. User asks by typing or tapping the microphone.
-2. Choose **Hinglish**, **हिन्दी**, or **English**. Device speech chooses a supported locale, preferring Hindi for Hinglish.
-3. For better code-switching, the user may separately allow **AI Hinglish voice transcription**. With a backend URL configured, the app records a short WAV and sends it to the Sathi server, which calls Gemini's transcription model. This is opt-in because raw audio is sensitive.
-4. The user reviews the transcript and taps **Help me with this**.
-5. If cloud text analysis consent is enabled and the backend runs with an API key, Gemini selects one allow-listed demo tool and returns a response. Otherwise, local rules answer common questions.
-6. User can open the claim, documents, tracker, or draft screen. No claim gets submitted automatically.
+## Implemented in this source tree
 
-## Project tree
+- Flutter + Dart + BLoC UI and state management.
+- AES-GCM encrypted local vault for app-owned copies of attachments, masked OCR text, drafts and local activity.
+- Local OCR for supported images (Latin text-recognition script configured by default).
+- Local document search and offline insurance FAQ in English, Hindi and Roman Hinglish.
+- Device speech input with locale detection and recovery UI.
+- Optional confirmed online general-information answers through the Gemini backend.
+- Optional separately consented Gemini audio transcription.
+- Editable reconsideration draft, copy-to-clipboard, and a local activity tracker.
+- Backend-side guard rejecting claim context, OCR text, filenames, and conversation history at the online general-information endpoint.
+- Flutter and Python tests.
+
+## Not implemented / not to be claimed in a demo
+
+- No live insurer/TPA, hospital, policy, claims or grievance API.
+- No claim submission, resubmission, escalation or live-status polling.
+- No verified policy RAG, vector database, or insurer-approved clause retrieval.
+- No on-device generative Gemma/MediaPipe model bundled in this archive. Offline behavior is retrieval + fixed FAQ + rules.
+- No production authentication, tenant isolation, rate limiting, analytics consent framework, or production security audit.
+
+## Project structure
 
 ```text
-sathi_flutter_plus/
-  lib/
-    core/security/                 # PII masker + separate text/audio consent
-    core/services/                 # OCR, WebSocket event helper
-    features/claim/data/
-      claim_analysis_service.dart   # sample claim analysis adapter
-      sathi_agent_service.dart      # local Hinglish router + HTTP API + audio upload
-    features/claim/presentation/pages/
-      sathi_assistant_card.dart     # microphone, transcript, language mode, agent status
-      technology_page.dart          # stack and privacy controls
-      home_page.dart / claim_page.dart / documents_page.dart / tracker_page.dart / appeal_page.dart
-  backend/
-    main.py                         # Gemini planner + allow-listed demo tools + voice transcription endpoint
-    requirements.txt
-    .env.example
-    test_agent_rules.py
-  docs/
-    PLATFORM_PERMISSIONS.md
-    GEMINI_AGENT_AND_HINGLISH.md
-    ON_DEVICE_LLM.md
+lib/
+  core/
+    security/         # PII masker and consent settings
+    storage/          # AES-GCM local private vault
+    services/         # on-device OCR and WebSocket example
+  features/claim/
+    data/              # local-first router, online general-info adapter
+    domain/models/     # claim/document/timeline models
+    presentation/
+      pages/           # Home, Claim, Documents, Tracker, Draft, Assistant, Privacy
+      providers/       # ClaimCubit and local persistence
+backend/
+  main.py              # FastAPI general-information and opt-in voice endpoints
+  .env.example
+  test_agent_rules.py
+docs/
+tests/
+android/
+ios/
 ```
 
 ## Requirements
 
-- Flutter 3.44+/Dart 3.12+ for the package versions in `pubspec.yaml`.
-- Python 3.11+ for the API server.
-- Google AI Studio API key for Gemini-backed chat and cloud audio transcription.
-- Android emulator or Android device for the easiest mic demo. iOS requires macOS + Xcode.
+- Flutter stable meeting `pubspec.yaml` (Flutter 3.44+ and Dart 3.12+ in this project).
+- Python 3.11+ recommended for the backend.
+- A Google AI Studio API key for optional online answers/transcription.
+- Android Studio / Android SDK for Android builds. Xcode is required for iOS builds.
 
-## 1) Prepare Flutter platform folders and permissions
+This archive includes the native Android/iOS project folders. Do not run `flutter create` unless one of those folders is missing.
 
-The archive intentionally does not include generated `android/` and `ios/` runner projects. From this folder, if they are missing:
+## 1. Configure the backend
 
-```bash
-flutter create . --platforms=android,ios
-```
-
-Follow `docs/PLATFORM_PERMISSIONS.md` and add the microphone, speech, Internet, camera and photo-library permission snippets for your generated platform projects. Restart the app after changing native permissions; hot reload is not enough for manifest changes.
-
-## 2) Start the actual Gemini agent backend
-
-Create a key in Google AI Studio. Keep it only in the backend, never in Flutter or a committed `.env` file.
+From the project root:
 
 ```bash
 cd backend
-python -m venv .venv
-# macOS/Linux:
+python3 -m venv .venv
 source .venv/bin/activate
-# Windows PowerShell:
-# .venv\\Scripts\\Activate.ps1
-pip install -r requirements.txt
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
 cp .env.example .env
 ```
 
-Edit `backend/.env` and replace `GEMINI_API_KEY=replace_me` with your private key. Default models are `gemini-3.8-flash` for agent responses and `gemini-3.5-transcribe` for voice transcription; both may be changed in `.env` if model access differs for your account.
+Edit `backend/.env` and set your own API key. The default tested model name in this project is `gemini-3.6-flash`; update it only if your Google AI Studio account has access to a different model.
 
-Start the server from inside the `backend/` directory:
+```env
+GEMINI_API_KEY=YOUR_PRIVATE_KEY
+GEMINI_MODEL=gemini-3.6-flash
+GEMINI_TRANSCRIPTION_MODEL=gemini-3.5-transcribe
+SATHI_ALLOWED_ORIGINS=*
+SATHI_ALLOW_UNAUTHENTICATED_DEV=true
+```
+
+Keep the key in `backend/.env` only. Never paste it into Dart code or commit it to Git.
+
+Start the backend from inside `backend/`:
 
 ```bash
 uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-Confirm it is running:
+Check it from the Mac:
 
 ```bash
-curl http://127.0.0.1:8000/health
-curl -X POST http://127.0.0.1:8000/v1/agent/chat \\
-  -H 'Content-Type: application/json' \\
-  -d '{"message":"Mera claim reject ho gaya, ab kya karu?","language":"hinglish"}'
+curl -s http://127.0.0.1:8000/health
 ```
 
-`/health` must show `"modelConfigured": true` and `"mode": "gemini_agent"` for live model calls. If it shows `local_rules_only`, no model is running yet.
+The health response indicates whether a key is configured; it does not verify that Gemini is currently available. A live model call can still fail due to quota, service capacity, or API access.
 
-## 3) Run Flutter against the backend
+## 2. Configure and run Flutter
 
-In a **second terminal**, from the project root:
+Open a second terminal at the project root (the folder containing `pubspec.yaml`):
 
 ```bash
 flutter pub get
 flutter analyze
 flutter test
-flutter run --dart-define=SATHI_API_BASE_URL=http://10.0.2.2:8000
 ```
 
-`10.0.2.2` is the Android emulator's route to your development computer. In generated `android/app/src/main/AndroidManifest.xml`, for local development only, set `android:usesCleartextTraffic="true"` on the `<application>` element to permit the local `http://` API. Do not use cleartext traffic for a deployed service.
-
-For a **physical phone**, connect it and your computer to the same Wi-Fi and use the computer's LAN IP instead, e.g. `--dart-define=SATHI_API_BASE_URL=http://192.168.1.20:8000`. Permit the port in your firewall. Use HTTPS for any hosted backend.
-
-## 4) Turn on the model and Hinglish voice
-
-1. Open Home → **How Sathi works**.
-2. Enable **Allow redacted cloud analysis**. This lets the assistant send the user's masked question to your configured backend for Gemini reasoning.
-3. Enable **Allow cloud voice transcription** separately. This allows the app to send a short WAV recording to the configured backend for Hinglish transcription. Voice consent is separate from text consent.
-4. Return Home, select **Hinglish**, tap the microphone, speak a short query such as “Mera claim reject ho gaya, ab kya karu?”, and tap stop.
-5. Review the transcript. Then press **Help me with this**.
-6. Inspect the reply badge: `GEMINI AGENT` means a Gemini call returned; `LOCAL DEMO` means local deterministic rules were used; `OFFLINE FALLBACK` means the server call failed and the app fell back locally.
-
-With cloud voice transcription disabled, the microphone uses the phone's speech recognition service with a Hindi-first locale for Hinglish. Device ASR quality and language availability vary by Android/iOS speech service. If the device engine cannot recognise code-switching well, enable the optional Gemini voice transcription path.
-
-## What the agent actually does
-
-The backend uses a two-step model flow:
-
-1. A Gemini model outputs a structured plan: intent + one allowed tool.
-2. The server executes only a safe demo tool (`get_claim_status`, `get_required_documents`, `explain_claim_reason`, `prepare_reconsideration_draft`, or `none`).
-3. A second Gemini call writes the user-facing response in the selected language using the tool result.
-
-These tools read fictional example data or create a draft only. No tool submits a claim, changes policy data, contacts an insurer, makes an eligibility decision, or promises recovery.
-
-## Tests and verification
+For the **Android emulator** while the backend runs on your Mac:
 
 ```bash
-# Flutter tests (from project root)
-flutter test
+flutter run \
+  --dart-define=SATHI_API_BASE_URL=http://10.0.2.2:8000 \
+  --dart-define=SATHI_ALLOW_UNAUTHENTICATED_DEV=true
+```
 
-# Python backend tests (from project root, after installing backend requirements)
+For a **physical Android phone** on the same Wi-Fi, replace `10.0.2.2` with your Mac's LAN IP (for example `192.168.1.101`). The backend must remain running and the macOS firewall must permit the local connection.
+
+The Android debug manifest enables cleartext HTTP only for local development. Use HTTPS and remove the local-development exception for a hosted or production backend. A non-debug/release build is not configured as a production service.
+
+## 3. Use Sathi
+
+1. Open **Documents** and attach a synthetic/test decision-letter image or another document.
+2. Select **Read text on device** for supported image formats. Review the extracted text; do not use real medical documents in this  build.
+3. Open **Home → Sathi** and use **Private files** mode to search your saved local text or the offline FAQ. Personal questions do not go to the cloud.
+4. Choose **General information** only for a generic question. If local search/FAQ cannot answer it and online lookup is enabled, review the exact-question confirmation before sending anything.
+5. Review any draft in the **Draft** tab. Copy it and submit it yourself through the insurer's official channel if appropriate.
+6. The **Track** tab records local actions only. It is not connected to the insurer.
+
+## 4. Test
+
+Run Flutter tests from the project root:
+
+```bash
+flutter test
+```
+
+Run backend tests from the project root after installing the requirements and activating the backend venv:
+
+```bash
 python -m unittest discover -s backend -v
 ```
 
-The package sources and backend tests are included. This execution environment does not have a Flutter SDK or a Gemini key, so a full device build or a live model request could not be run here. Run the commands above locally to validate the environment-specific Android/iOS plugins and your account's model access.
+Backend tests exercise intent classification and privacy filters without intentionally calling Gemini. This execution environment does not have the Flutter SDK or your Gemini credentials, so run the checks on your Mac before demoing.
 
-## Important security boundary
+## Security boundary
 
-- Never commit the backend `.env` file or expose the Gemini key in Dart.
-- For this hackathon demo, use only the fictional sample claim and never upload real patient documents.
-- The backend does not deliberately persist recordings or log audio/messages, but the upload framework may buffer audio temporarily during processing. Audio is still transmitted to the configured backend and Google's transcription service when cloud voice is enabled.
-- PII masking is a helpful second layer, not complete DLP. Do not send policy numbers, Aadhaar numbers, medical records or claim letters through this public-demo setup.
-- The backend has no production authentication, rate limiting, tenant isolation or RAG. Do not deploy it publicly with real claimant data until these controls are built and reviewed.
+- The backend's `SATHI_ALLOW_UNAUTHENTICATED_DEV=true` switch is for short-lived local testing with synthetic data only. Never expose this backend publicly in that mode.
+- PII masking is best effort, not comprehensive data-loss prevention. The safest rule is not to upload real health/identity/claim data during the dem.
+- `flutter_secure_storage` protects the vault key; AES-GCM protects app-owned vault files at rest. This is not a substitute for a production threat model, secure backups, device lock, access control, retention/deletion policy, or security review.
+- The operating system's own speech-recognition service may use network services according to device settings even when Sathi does not upload an audio file itself. The optional cloud transcription mode definitely sends audio off-device and is separately consented.
+- No insurer lookup or claim submission is simulated. Sathi explains only user-provided text and general insurance concepts, and must not promise that a claim will be recovered.

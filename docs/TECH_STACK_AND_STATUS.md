@@ -1,56 +1,25 @@
-# Sathi technology stack and implementation status
+# Sathi implementation status
 
-This document distinguishes code that is present from services that become active only after you configure the backend. The UI must never claim that a model ran when it used local rules.
-
-## Client app
-
-| Technology | Status | Role |
+| Capability | Status | Notes |
 |---|---|---|
-| Flutter + Dart | Implemented | Cross-platform demo UI |
-| BLoC (`flutter_bloc`) | Implemented | Claim journey state in `ClaimCubit` |
-| Platform channels | Used through native plugin bridges | OCR, microphone recording and device speech APIs |
-| Secure storage | Implemented for privacy preferences | Stores separate cloud-text and cloud-voice consent flags; not the uploaded claim documents |
-| Camera/gallery/file picker | Implemented as a local selection flow | Records a selected filename in the demo checklist; this is not an insurer upload |
+| Flutter UI / BLoC | Implemented | Home, Claim, Documents, Tracker, Draft, Assistant and Privacy screens. No seeded claim amounts/status/rejection reason. |
+| Encrypted local vault | Implemented | AES-GCM encrypted attachments and encrypted JSON snapshot; vault key stored via platform secure storage. |
+| On-device OCR | Implemented for supported images | Google ML Kit Latin script; PDF OCR is not bundled. OCR text is masked and saved locally. |
+| Local document Q&A | Implemented as retrieval/rules | Keyword/sentence retrieval over local OCR text, not local generative AI. |
+| Offline insurance FAQ | Implemented | Fixed general definitions/checklists in English, Hindi and Roman Hinglish. |
+| Editable reconsideration draft | Implemented locally | Template grounded in local excerpts/placeholders; user must review and submit manually. |
+| Live general-information AI | Implemented behind backend config | Gemini 3.6 Flash default, only after local lookup and explicit per-question confirmation. Private query/document text is not sent. |
+| Hinglish device voice | Available | Uses OS speech service. Accuracy and installed locales vary. |
+| Cloud voice transcription | Optional | Sends short audio to Gemini only after voice consent, General-information mode and per-recording confirmation. |
+| Live claim-text cloud analysis | Disabled | `/v1/claims/analyze` returns HTTP 410 to protect private claim text. |
+| Live insurer/TPA status | Not implemented | Requires authenticated partner API. |
+| Claim submission/resubmission/escalation | Not implemented | The app prepares/copies a draft only. |
+| Verified policy RAG/vector search | Not implemented | No approved policy corpus, retrieval index or citations connected. |
+| On-device generative Gemma | Not bundled | Offline mode uses retrieval, rules and FAQ, not a generative LLM. |
+| Production authentication/operations | Not implemented | No Firebase/OIDC login, tenant isolation, production rate limits, audit framework or security review. |
 
-## On-device features
+## Privacy boundary
 
-| Technology | Status | Role |
-|---|---|---|
-| On-device OCR (ML Kit) | Implemented for selected image files; Latin script configured by default | Extracts text when the user taps Read text on device |
-| PII masking | Implemented as a lightweight helper | Masks common phone, email, PAN-like and Aadhaar-like patterns; this is best-effort and not a full DLP control |
-| Device speech (`speech_to_text`) | Implemented with locale discovery and status/error handling | Uses the OS recognition service, preferring Hindi for Hinglish; mixed Hindi-English accuracy depends on installed service and device |
-| Google Gemma on-device inference | Not bundled or connected | No Gemma weights/runtime are included in this source archive |
-| MediaPipe LLM Inference | Not wired | Google documentation says the API is in maintenance-only mode; evaluate LiteRT-LM for a future local-model implementation. See `ON_DEVICE_LLM.md`. |
+Sathi checks local OCR/document text and the offline FAQ first. An obvious personal/claim-specific question remains local. When an unanswered generic question may go online, the user sees the exact text and confirms it. The HTTP adapter sends only the current general question; the backend rejects non-empty context/history and obvious personal queries. Cloud voice is a separate opt-in because the audio itself leaves the device.
 
-## Cloud AI and voice
-
-| Technology | Status | Role |
-|---|---|---|
-| Gemini agent (`backend/main.py`) | Implemented; inactive until `GEMINI_API_KEY` is set and backend is running | A planner model selects one intent, the server enforces an allow-listed demo tool, and a second model call produces the response in Roman-script Hinglish, Devanagari Hindi or English |
-| Gemini transcription (`gemini-3.5-transcribe`) | Implemented as opt-in `/v1/voice/transcribe`; requires the same backend key | Receives a short WAV after separate cloud-voice consent and asks the model to preserve Hindi-English code-switching; user must review transcript before sending it as a question |
-| Local Hinglish rules | Implemented | Deterministic fallback for common demo intents; not a language model |
-| RAG pipeline / vector search | Not deployed | No real policy corpus or production vector index is connected |
-| Clause citations | Response model can be extended to carry citations; verified policy citations are not implemented | Do not show a claim-specific policy citation unless the backend retrieved it from a verified policy source |
-| Guardrails | Partial demo controls | PII masking, separate consent flags, allow-listed tools, fictional claim data and no automatic claim submission; production auth and server-side controls remain required |
-
-## Platform and integrations
-
-| Technology | Status | Role |
-|---|---|---|
-| REST | Implemented client adapter for agent text and voice transcription | Targets `/v1/agent/chat` and `/v1/voice/transcribe` on the configured backend |
-| WebSocket | Example event parser only | `ClaimUpdatesSocket` parses events from an already-authenticated channel; no live endpoint configured |
-| Firebase | Not configured | Requires a Firebase project and `flutterfire configure`; add only the plugins actually needed |
-| Partner APIs | Mock/demo data only | No live insurer, TPA, Account Aggregator, DigiLocker or payment integration |
-| Analytics | Design target only | Track non-sensitive funnel events; never log OCR text, claim IDs, policy numbers or medical details |
-| CI/CD | GitHub Actions starter included | `.github/workflows/flutter.yml` runs checks and a debug Android build after platform scaffolding is present |
-
-## Exact data flow
-
-1. User asks by text or presses the microphone.
-2. For local voice mode, the device speech service recognizes text. Device providers may use their own network services according to device configuration.
-3. For AI voice mode, the app records a short WAV and uploads it only after the separate cloud-voice consent is on and a backend URL is configured. The backend calls Gemini transcription; the user reviews the transcript before submitting it as a question.
-4. For cloud text analysis, the app masks common PII patterns and calls the backend only when cloud-text consent is enabled. The backend masks again, asks Gemini for a structured intent/tool plan, enforces the allow-list in server code and asks Gemini to phrase the tool result.
-5. The only tool data is the fabricated sample claim. No claim is submitted and no actual insurer is contacted.
-6. Without a valid key/model response, the UI must show `LOCAL DEMO` or `OFFLINE FALLBACK`, never `GEMINI AGENT`.
-
-Client-side masking is best-effort, not a complete privacy guarantee. The current backend is a hackathon prototype with no production authentication, rate limiting, tenant isolation, live policy retrieval or insurer integration. Do not send real claimant/medical documents to it.
+A Gemini answer is not insurer verification. Never claim that a claim status was checked, a letter was submitted, a policy clause is verified, or recovery is guaranteed unless a future authenticated partner integration actually performs that operation.

@@ -1,55 +1,30 @@
-# Native setup for voice, audio recording, camera and OCR
+# Android and iOS configuration
 
-This source archive does not include generated Android/iOS runner folders. After extraction, run `flutter create . --platforms=android,ios` if they are missing. Then merge the following settings into the generated native files.
+This archive includes Android and iOS runner folders. Permissions for the Sathi camera, microphone, network and speech recognizer are merged into the native projects.
 
-## Android — `android/app/src/main/AndroidManifest.xml`
+## Android
 
-Place these permissions and the speech recognizer query as children of `<manifest>` and **outside** `<application>`:
+`android/app/src/main/AndroidManifest.xml` includes:
 
-```xml
-<uses-permission android:name="android.permission.RECORD_AUDIO" />
-<uses-permission android:name="android.permission.INTERNET" />
-<uses-permission android:name="android.permission.CAMERA" />
-<uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
-<queries>
-    <intent>
-        <action android:name="android.speech.RecognitionService" />
-    </intent>
-</queries>
-```
+- `INTERNET` for API calls and the OS speech service
+- `RECORD_AUDIO` for voice input
+- `CAMERA` for taking a document photo
+- a `RecognitionService` query for speech recognizer discovery
 
-The `speech_to_text` plugin uses the installed Android speech-recognition service. It can fail if no recognizer or Hindi speech pack is available. Open the device's Google/Android speech services settings, install Hindi language support if needed, and allow microphone permission.
+`android/app/src/debug/AndroidManifest.xml` allows cleartext HTTP **only in debug builds** so a local Flutter run can reach a development backend. The release manifest should use HTTPS. Do not deploy a public backend with `SATHI_ALLOW_UNAUTHENTICATED_DEV=true`.
 
-For **local development only** when using `http://10.0.2.2:8000`, add this attribute to the generated `<application>` tag:
+The build file sets `minSdk` to at least 24 to match the current `flutter_secure_storage` v11 requirements. Check this if you downgrade the dependency.
 
-```xml
-android:usesCleartextTraffic="true"
-```
+If speech recognition returns `error.no.match`, it means the device recognizer could not transcribe the phrase; it does not necessarily mean Sathi or Gemini is broken. Confirm microphone permission and speech service/language availability. Accuracy for Roman-script Hinglish varies by device.
 
-Remove that attribute for HTTPS deployments. If `flutter create` generated a newer Android configuration with a network security config, follow that config rather than adding duplicate attributes.
+## iOS
 
-Use a `minSdk` compatible with the selected `flutter_secure_storage`, `record`, and ML Kit package versions (at least 23 for this stack), and accept the compile SDK version required by the plugins.
+`ios/Runner/Info.plist` includes usage descriptions for microphone, speech recognition, camera, and the photo library.
 
-## iOS — `ios/Runner/Info.plist`
+The project uses local HTTP endpoints only for local development. Use an HTTPS backend for real-device testing beyond a trusted local network. Do not add broad App Transport Security exceptions to a release build.
 
-Merge these entries inside the top-level `<dict>`:
+## Privacy modes
 
-```xml
-<key>NSMicrophoneUsageDescription</key>
-<string>Record a short question only when you choose AI Hinglish voice transcription.</string>
-<key>NSSpeechRecognitionUsageDescription</key>
-<string>Convert your spoken question into text so you can review it before continuing.</string>
-<key>NSCameraUsageDescription</key>
-<string>Take a photo of a document you choose to attach to your claim checklist.</string>
-<key>NSPhotoLibraryUsageDescription</key>
-<string>Select a document image you choose to read on your device.</string>
-```
-
-Voice recognition availability depends on the iOS speech service and downloaded languages. Check iOS Settings → Privacy & Security → Speech Recognition and Microphone when testing.
-
-## Important voice distinction
-
-- **Device speech:** the `speech_to_text` plugin asks the OS speech engine to produce text. Sathi does not upload its own audio file in this mode, though the operating-system provider may use network services according to device settings.
-- **AI Hinglish voice:** `record` records a short WAV. With the separate **Allow cloud voice transcription** switch turned on and `SATHI_API_BASE_URL` configured, the app uploads the audio to `/v1/voice/transcribe`, and the backend requests a transcript from Gemini. This is explicit cloud processing and must not be used with real health/identity data in the demo.
-
-After editing native permissions, stop and rebuild the app. Hot reload does not apply manifest or Info.plist changes.
+- **Private files:** Sathi searches locally and uses device speech recognition. Sathi itself does not upload the current question, OCR text, filenames, documents, or conversation history. The OS speech service may have its own network behaviour depending on device settings.
+- **General information:** Sathi checks local documents and the offline FAQ first. For an unanswered generic question, it shows a confirmation dialog and sends only the displayed question to Gemini.
+- **Cloud voice transcription:** Separate voice consent + General information mode + a per-recording warning are required. The audio leaves the device for transcription. Never use this with a private claim question.

@@ -1,9 +1,9 @@
 """Sathi AI backend for a local/hackathon prototype.
 
-This backend generates answers from the user's question and explicitly supplied,
-PII-masked document text. It does not fabricate claim status and does not connect
-to an insurer. Real insurer status/claim submission requires a provider-specific,
-authenticated integration and is intentionally not simulated here.
+This backend generates answers only for confirmed general-information questions.
+It rejects private claim context, document/OCR text, chat history and obvious
+personal questions. Private documents are meant to stay in Sathi's encrypted
+on-device vault. The backend does not connect to an insurer.
 
 Before accepting real customer data in production, add Firebase/OIDC authentication,
 per-user authorization, rate limiting, audit controls, secret management, a retention
@@ -23,15 +23,19 @@ from typing import Literal
 from dotenv import load_dotenv
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from google import genai
-from google.genai import types
+try:
+    from google import genai
+    from google.genai import types
+except ImportError:  # Allows local rule tests without the optional provider SDK installed.
+    genai = None
+    types = None
 from pydantic import BaseModel, Field
 
 load_dotenv()
 logger = logging.getLogger("uvicorn.error")
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-flash").strip()
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.6-flash").strip()
 GEMINI_TRANSCRIPTION_MODEL = os.getenv("GEMINI_TRANSCRIPTION_MODEL", "gemini-3.5-transcribe").strip()
 MAX_AUDIO_BYTES = 8 * 1024 * 1024
 MAX_CONTEXT_CHARS = 18_000
@@ -41,21 +45,20 @@ ALLOW_UNAUTHENTICATED_DEV = os.getenv("SATHI_ALLOW_UNAUTHENTICATED_DEV", "false"
 
 
 def safe_provider_error(exc: Exception) -> str:
-    """Summarize provider errors without logging user prompts or API credentials."""
+    """Log provider error metadata without logging prompts, OCR, audio, or API keys."""
     message = str(exc)
     if GEMINI_API_KEY:
         message = message.replace(GEMINI_API_KEY, "[REDACTED_API_KEY]")
     message = re.sub(r"(?i)bearer\s+\S+", "Bearer [REDACTED]", message)
     return message[:800] or "(no provider message)"
-# Google Gen AI SDK HttpOptions.timeout is configured in milliseconds.
-# Bound model requests so the Flutter client can wait slightly longer and
-# display a useful error if the model itself takes too long.
+
+
 client = (
     genai.Client(
         api_key=GEMINI_API_KEY,
         http_options=types.HttpOptions(timeout=120_000),
     )
-    if GEMINI_API_KEY
+    if GEMINI_API_KEY and genai is not None and types is not None
     else None
 )
 
@@ -72,14 +75,14 @@ app.add_middleware(
 
 @app.middleware("http")
 async def log_request_duration(request: Request, call_next):
-    """Log timing/status only; never log questions, OCR, audio, or response text."""
+    """Log endpoint, status and duration only, never private user content."""
     started = time.perf_counter()
     response = await call_next(request)
     elapsed = time.perf_counter() - started
     if request.url.path in {"/v1/agent/chat", "/v1/claims/analyze", "/v1/voice/transcribe"}:
-        print(
-            f"[sathi-timing] {request.method} {request.url.path} "
-            f"status={response.status_code} duration_s={elapsed:.1f}"
+        logger.info(
+            "[sathi-timing] %s %s status=%s duration_s=%.1f",
+            request.method, request.url.path, response.status_code, elapsed,
         )
     return response
 
@@ -91,6 +94,44 @@ def mask_pii(text: str) -> str:
     text = re.sub(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", "[EMAIL REDACTED]", text, flags=re.I)
     text = re.sub(r"(?:\+?91[\s-]?)?[6-9]\d{4}[\s-]?\d{5}\b", "[PHONE REDACTED]", text)
     return text
+
+
+def is_private_or_sensitive_query(value: str) -> bool:
+    """Conservative server-side guard: this endpoint is general-info only."""
+    raw = value.strip()
+    if not raw:
+        return True
+    if mask_pii(raw) != raw or re.search(r"\b\d{4,}\b", raw):
+        return True
+    q = raw.casefold()
+    private_markers = (
+        "my claim", "my policy", "my insurer", "my hospital", "my bill", "my diagnosis",
+        "my treatment", "my medication", "my surgery", "my medical", "my test result",
+        "my ", "i have ", "i had ", "i was diagnosed", "i take ", "i paid ",
+        "mera ", "meri ", "mere ", "mujhe ", "maine ",
+        "मेरा ", "मेरी ", "मेरे ", "मुझे ",
+        "my decision letter", "this document", "this letter", "attached document", "uploaded document",
+        "claim status", "claim number", "claim id", "policy number", "policy id",
+        "approved amount", "requested amount", "claim ka status", "claim ka reason",
+        "mera claim", "meri policy", "mere documents", "meri report", "mera bill",
+        "mera ilaaj", "meri bimari", "meri diagnosis", "is letter mein", "mere document",
+        "मेरा क्लेम", "मेरी पॉलिसी", "मेरे दस्तावेज", "मेरी रिपोर्ट", "मेरा बिल",
+        "मेरा इलाज", "मेरी बीमारी", "इस पत्र", "इस दस्तावेज", "क्लेम स्टेटस",
+    )
+    if any(marker in q for marker in private_markers):
+        return True
+    first_person_markers = (
+        "i have ", "i had ", "i was diagnosed", "i take ", "i paid ", "i was admitted",
+        "i visited ", "mujhe ", "maine ", "mera ", "meri ", "mere ",
+        "मुझे ", "मेरी ", "मेरा ", "मेरे ",
+    )
+    health_or_finance_markers = (
+        "diabetes", "cancer", "kidney disease", "heart disease", "diagnosis", "medication",
+        "medicine", "treatment", "surgery", "medical report", "lab report", "test result",
+        "prescription", "hospitalised", "hospitalized", "admitted", "premium amount", "loan amount",
+        "medical bill", "इलाज", "बीमारी", "दवा", "रिपोर्ट", "सर्जरी", "अस्पताल",
+    )
+    return any(marker in q for marker in first_person_markers) and any(marker in q for marker in health_or_finance_markers)
 
 
 def clean_text(value: object, limit: int = 7000) -> str:
@@ -158,6 +199,7 @@ class AgentRequest(BaseModel):
     message: str = Field(min_length=1, max_length=3000)
     language: Literal["hinglish", "hindi", "english"] = "hinglish"
     cloudConsent: bool = False
+    queryMode: Literal["general_information"] = "general_information"
     claimContext: dict | None = None
     chatHistory: list[dict[str, str]] = Field(default_factory=list, max_length=12)
 
@@ -281,22 +323,28 @@ def health() -> dict:
 def chat(request: AgentRequest) -> dict:
     require_prototype_access()
     if not request.cloudConsent:
-        raise HTTPException(status_code=403, detail="Cloud analysis consent is required. Enable it in How Sathi works before sending this question.")
+        raise HTTPException(status_code=403, detail="Cloud general-information consent is required before sending this question.")
+    # Enforce the local-first privacy rule at the server boundary as well. A
+    # malformed/older client must not be able to attach files, OCR, claim context,
+    # or conversation history to a Gemini request.
+    if request.claimContext:
+        raise HTTPException(status_code=400, detail="This endpoint accepts general-information questions only. Claim context and document text are never accepted.")
+    if request.chatHistory:
+        raise HTTPException(status_code=400, detail="Conversation history is not accepted by the online general-information endpoint.")
+    if is_private_or_sensitive_query(request.message):
+        raise HTTPException(status_code=422, detail="This looks personal or claim-specific. For privacy, this online endpoint accepts generic questions only. Remove personal details or use Private mode.")
     require_model()
     message = clean_text(request.message, 3000)
     if not message:
         raise HTTPException(status_code=400, detail="Message is empty after validation.")
-    context = safe_context(request.claimContext)
-    history = safe_history(request.chatHistory)
+    # The only user payload used for the cloud generation is the current question.
     intent = detect_intent(message)
     action_index, action_label = action_for_intent(intent, request.language)
     prompt = (
         f"User language preference: {request.language}.\n"
-        f"Recent conversation turns (PII masked; use only for conversational continuity): {json.dumps(history, ensure_ascii=False)}\n"
         f"Detected topic for navigation only: {intent}.\n"
-        f"User's actual question (PII masked): {message}\n\n"
-        f"User-provided document/context excerpts (PII masked; may be empty): {json.dumps(context, ensure_ascii=False)}\n\n"
-        "Answer the actual question. Use OCR excerpts as evidence only when relevant. If asked about live status, "
+        f"User's general-information question (PII masked): {message}\n\n"
+        "Answer the question using general knowledge only. You have not received the user's policy, documents, OCR, claim context, history, or insurer records. If asked about live status, "
         "state there is no insurer/TPA integration and no status lookup was performed. Do not use or invent any sample claim. "
         "For unknown/absent details, say what input is missing and how the customer can supply it safely. "
         "If the user asks for an appeal/reconsideration letter, put the complete editable letter in the JSON 'draft' field, "
@@ -328,78 +376,42 @@ def chat(request: AgentRequest) -> dict:
             **output.model_dump(),
             "mode": "gemini_agent",
             "model": GEMINI_MODEL,
-            "notice": output.notice or "AI-generated from your question and any provided document text. No insurer portal was queried.",
+            "notice": output.notice or "AI-generated from the confirmed general-information question only. No files, OCR, claim context, chat history, or insurer portal was queried.",
         }
     except HTTPException:
         raise
     except Exception as exc:
-        # Log provider error metadata only, never the user's prompt, OCR, or response.
+        # Never log user prompts, OCR text, audio, or generated content.
         logger.error("Sathi Gemini chat failed (%s): %s", type(exc).__name__, safe_provider_error(exc))
-        raise HTTPException(status_code=502, detail=f"Live AI request failed ({type(exc).__name__}). See backend terminal for sanitized provider error details.") from exc
+        raise HTTPException(
+            status_code=502,
+            detail=f"Live AI request failed ({type(exc).__name__}). See backend terminal for sanitized provider error details.",
+        ) from exc
 
 
 @app.post("/v1/claims/analyze")
-def analyze_claim(request: ClaimAnalyzeRequest) -> dict:
-    require_prototype_access()
-    if not request.cloudConsent:
-        raise HTTPException(status_code=403, detail="Cloud analysis consent is required before analysing claim text.")
-    require_model()
-    reason = clean_text(request.insurerReason, 5000)
-    uploaded = [clean_text(x, 120) for x in request.uploadedDocuments[:30] if clean_text(x, 120)]
-    requested = [clean_text(x, 120) for x in request.requiredDocuments[:30] if clean_text(x, 120)]
-    docs = []
-    for item in request.documentTexts[:5]:
-        title = clean_text(item.get("title", "User-provided document"), 120)
-        text = clean_text(item.get("text", ""), 6000)
-        if text:
-            docs.append({"title": title or "User-provided document", "text": text})
-    context = {
-        "insurerReasonTextProvidedByUser": reason,
-        "userAttachedDocumentNames": uploaded,
-        "userProvidedChecklist": requested,
-        "userProvidedDocumentText": docs,
-    }
-    prompt = (
-            "Review this customer-provided health insurance claim information. It may be incomplete and is not verified by the insurer. "
-            "Summarise what the text explicitly states; identify only document gaps supported by the supplied letter/checklist; "
-            "if there is no decision letter text or policy text, clearly say the analysis is incomplete and do not invent missing documents. "
-            "Provide practical next steps and a clear non-legal/non-insurer-decision disclaimer. Do not infer claim status or success likelihood. "
-            "Return the requested JSON fields: summary, missingDocuments, nextSteps, disclaimer, evidenceUsed.\n\n"
-            + json.dumps(context, ensure_ascii=False)
+def analyze_claim_disabled() -> dict:
+    # Private claim/document analysis must remain local. Keep this explicit
+    # response so older clients cannot accidentally upload OCR or claim data.
+    raise HTTPException(
+        status_code=410,
+        detail="Cloud claim analysis is disabled by Sathi's local-first privacy policy. Claim documents and OCR text must be analysed on-device.",
     )
-    try:
-        result = client.models.generate_content(
-            model=GEMINI_MODEL,
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                system_instruction=SYSTEM_PROMPT,
-                response_mime_type="application/json",
-                response_schema=ClaimAnalysisOutput,
-                temperature=0.2,
-                max_output_tokens=1600,
-            ),
-        )
-        output_text = (result.text or "").strip()
-        if not output_text:
-            raise ValueError("The model returned an empty response.")
-        output = ClaimAnalysisOutput.model_validate_json(output_text)
-        return {**output.model_dump(), "mode": "gemini_agent", "model": GEMINI_MODEL}
-    except HTTPException:
-        raise
-    except Exception as exc:
-        logger.error("Sathi Gemini claim analysis failed (%s): %s", type(exc).__name__, safe_provider_error(exc))
-        raise HTTPException(status_code=502, detail=f"Live claim analysis failed ({type(exc).__name__}). See backend terminal for sanitized provider error details.") from exc
 
 
 @app.post("/v1/voice/transcribe")
 async def transcribe_voice(
-        audio: UploadFile = File(...),
-        language_hint: str = Form(default="hinglish"),
-        cloudConsent: bool = Form(default=False),
+    audio: UploadFile = File(...),
+    language_hint: str = Form(default="hinglish"),
+    cloudConsent: bool = Form(default=False),
+    query_mode: str = Form(default=""),
+    confirmed_for_general_use: bool = Form(default=False),
 ) -> dict:
     require_prototype_access()
     if not cloudConsent:
         raise HTTPException(status_code=403, detail="Cloud voice consent is required before sending audio for transcription.")
+    if query_mode != "general_information" or not confirmed_for_general_use:
+        raise HTTPException(status_code=403, detail="Cloud transcription requires General information mode and explicit per-recording confirmation.")
     require_model()
     if audio.content_type not in ("audio/wav", "application/octet-stream", "audio/x-wav"):
         if not (audio.filename or "").lower().endswith(".wav"):
@@ -410,9 +422,9 @@ async def transcribe_voice(
     if not data:
         raise HTTPException(status_code=400, detail="The voice recording is empty.")
     prompt = (
-            "Transcribe this short Indian speech recording verbatim. The speaker may code-switch between Hindi and English (Hinglish), "
-            "including English financial/insurance words inside Hindi sentences. Preserve the words, Roman-script English tokens, and meaning; "
-            "do not translate, summarise, answer, or guess missing words. Return only the transcript. Language hint: " + language_hint[:30]
+        "Transcribe this short Indian speech recording verbatim. The speaker may code-switch between Hindi and English (Hinglish), "
+        "including English financial/insurance words inside Hindi sentences. Preserve the words, Roman-script English tokens, and meaning; "
+        "do not translate, summarise, answer, or guess missing words. Return only the transcript. Language hint: " + language_hint[:30]
     )
     try:
         response = client.interactions.create(
@@ -429,5 +441,5 @@ async def transcribe_voice(
     except HTTPException:
         raise
     except Exception as exc:
-        logger.error("Sathi Gemini voice transcription failed (%s): %s", type(exc).__name__, safe_provider_error(exc))
-        raise HTTPException(status_code=502, detail=f"Voice transcription failed ({type(exc).__name__}). See backend terminal for sanitized provider error details.") from exc
+        logger.error("Sathi Gemini transcription failed (%s): %s", type(exc).__name__, safe_provider_error(exc))
+        raise HTTPException(status_code=502, detail=f"Voice transcription failed ({type(exc).__name__}).") from exc

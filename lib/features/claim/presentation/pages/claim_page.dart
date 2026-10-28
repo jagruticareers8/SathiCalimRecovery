@@ -52,7 +52,7 @@ class ClaimPage extends StatelessWidget {
           ]),
         ])),
         const SizedBox(height: 16),
-        const SectionHeading('AI explanation based on your documents'),
+        const SectionHeading('Local explanation based on your documents'),
         const SizedBox(height: 10),
         SathiCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Row(children: [
@@ -61,14 +61,14 @@ class ClaimPage extends StatelessWidget {
             const Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Text('Explain what the text says', style: TextStyle(fontWeight: FontWeight.w800, color: AppColors.navy)),
               SizedBox(height: 3),
-              Text('Only reviewed OCR text is shared, after cloud consent.', style: TextStyle(color: AppColors.muted, fontSize: 11)),
+              Text('This check runs locally. No OCR text, documents or claim details are sent online.', style: TextStyle(color: AppColors.muted, fontSize: 11)),
             ])),
           ]),
           const SizedBox(height: 12),
           if (claim.isAnalyzing)
             const Center(child: Padding(padding: EdgeInsets.all(12), child: CircularProgressIndicator()))
           else
-            SizedBox(width: double.infinity, child: FilledButton.icon(onPressed: () => controller.analyzeClaim(), icon: const Icon(Icons.fact_check_outlined), label: const Text('Analyze my provided text'))),
+            SizedBox(width: double.infinity, child: FilledButton.icon(onPressed: () => controller.analyzeClaim(), icon: const Icon(Icons.fact_check_outlined), label: const Text('Check documents on this device'))),
           if (claim.analysisError != null) ...[
             const SizedBox(height: 8),
             Text(claim.analysisError!, style: const TextStyle(color: AppColors.red, fontSize: 12, height: 1.4)),
@@ -114,7 +114,7 @@ class ClaimPage extends StatelessWidget {
               ],
               if (claim.analysis!.missingDocuments.isNotEmpty) ...[
                 const SizedBox(height: 9),
-                const Text('Possible document gaps from the provided text', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 12, color: AppColors.navy)),
+                const Text('Attached files that still need local text extraction', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 12, color: AppColors.navy)),
                 const SizedBox(height: 4),
                 ...claim.analysis!.missingDocuments.map((item) => Padding(padding: const EdgeInsets.only(bottom: 3), child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [const Icon(Icons.circle, size: 5, color: AppColors.teal), const SizedBox(width: 7), Expanded(child: Text(item, style: const TextStyle(fontSize: 12)))]))),
               ],
@@ -137,7 +137,7 @@ class ClaimPage extends StatelessWidget {
           ),
         ]),
         const SizedBox(height: 14),
-        const Text('AI output is guidance, not a verified insurer decision or legal advice. Confirm requirements and deadlines with your insurer.', style: TextStyle(color: AppColors.muted, fontSize: 11, height: 1.45)),
+        const Text('Local output is guidance, not a verified insurer decision or legal advice. Confirm requirements and deadlines with your insurer.', style: TextStyle(color: AppColors.muted, fontSize: 11, height: 1.45)),
       ]),
     );
   }

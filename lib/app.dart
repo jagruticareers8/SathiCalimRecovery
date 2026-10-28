@@ -9,7 +9,7 @@ class SathiApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Sathi — Claim Recovery',
+      title: 'Sathi — Local-first Claim Companion',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light,
       home: const AppShell(),

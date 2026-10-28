@@ -106,7 +106,7 @@ class _AppealPageState extends State<AppealPage> {
 
   String _makeDraft(ClaimState claim) {
     final uploaded = claim.documents
-        .where((d) => d.uploaded && d.localPath != null)
+        .where((d) => d.uploaded && (d.localPath != null || d.storedLocally))
         .map((d) => '• ${d.title}${d.fileName == null ? '' : ' (${d.fileName})'}')
         .toList();
     final attachments = uploaded.isEmpty

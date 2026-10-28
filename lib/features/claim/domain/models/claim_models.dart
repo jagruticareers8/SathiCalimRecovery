@@ -9,6 +9,7 @@ class ClaimDocument {
     this.uploadedAt,
     this.localPath,
     this.extractedText,
+    this.storedLocally = false,
   });
 
   final String id;
@@ -20,9 +21,11 @@ class ClaimDocument {
   final DateTime? uploadedAt;
   /// Ephemeral on-device path. The file itself is not sent by the assistant.
   final String? localPath;
-  /// PII-masked OCR text retained in memory so the user can explicitly choose
-  /// to include document evidence in a consented cloud AI request.
+  /// PII-masked OCR text retained for encrypted on-device storage and local search.
+  /// This text is never attached to an online general-information request.
   final String? extractedText;
+  /// True when an encrypted app-private copy is stored in Sathi local vault.
+  final bool storedLocally;
 
   ClaimDocument copyWith({
     bool? uploaded,
@@ -30,6 +33,7 @@ class ClaimDocument {
     DateTime? uploadedAt,
     String? localPath,
     String? extractedText,
+    bool? storedLocally,
     bool clearLocalPath = false,
     bool clearExtractedText = false,
     bool clearAttachment = false,
@@ -44,6 +48,7 @@ class ClaimDocument {
       uploadedAt: clearAttachment ? null : (uploadedAt ?? this.uploadedAt),
       localPath: clearAttachment ? null : (clearLocalPath ? localPath : (localPath ?? this.localPath)),
       extractedText: clearAttachment || clearExtractedText ? null : (extractedText ?? this.extractedText),
+      storedLocally: clearAttachment ? false : (storedLocally ?? this.storedLocally),
     );
   }
 }
@@ -88,11 +93,11 @@ class ClaimCitation {
   final int? page;
 
   factory ClaimCitation.fromJson(Map<String, dynamic> json) => ClaimCitation(
-    sourceTitle: json['sourceTitle'] as String? ?? 'Source document',
-    section: json['section'] as String? ?? 'Unspecified section',
-    excerpt: json['excerpt'] as String? ?? '',
-    page: json['page'] is int ? json['page'] as int : null,
-  );
+        sourceTitle: json['sourceTitle'] as String? ?? 'Source document',
+        section: json['section'] as String? ?? 'Unspecified section',
+        excerpt: json['excerpt'] as String? ?? '',
+        page: json['page'] is int ? json['page'] as int : null,
+      );
 }
 
 class ClaimAnalysis {

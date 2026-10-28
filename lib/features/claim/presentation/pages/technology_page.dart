@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../../core/security/privacy_settings_store.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/widgets/sathi_card.dart';
+import '../providers/claim_controller.dart';
 
 class TechnologyPage extends StatefulWidget {
   const TechnologyPage({super.key});
@@ -55,8 +57,8 @@ class _TechnologyPageState extends State<TechnologyPage> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: Text(value
-            ? (_backendConfigured ? 'Cloud text analysis enabled. Gemini still requires a valid backend API key.' : 'Preference saved, but no backend URL is configured. Live AI will return a connection error until configured.')
-            : 'Cloud text analysis switched off. Sathi will not send the question to Gemini.'),
+            ? (_backendConfigured ? 'Online general-information lookup enabled. Sathi still checks local data first and asks before each online question.' : 'Preference saved, but no backend URL is configured. Live AI will return a connection error until configured.')
+            : 'Online lookup switched off. Sathi will stay on-device.'),
       ));
     } catch (error) {
       if (!mounted) return;
@@ -80,7 +82,7 @@ class _TechnologyPageState extends State<TechnologyPage> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: Text(value
-            ? (_backendConfigured ? 'AI Hinglish voice enabled. Short recordings will be sent to your configured Sathi backend for transcription.' : 'Preference saved, but no backend URL is configured. Device speech will be used instead.')
+            ? (_backendConfigured ? 'Cloud voice enabled for General information mode. Sathi asks before every recording upload; Private mode stays device-only.' : 'Preference saved, but no backend URL is configured. Device speech will be used instead.')
             : 'Cloud voice transcription switched off. Device speech will be used instead.'),
       ));
     } catch (error) {
@@ -105,29 +107,29 @@ class _TechnologyPageState extends State<TechnologyPage> {
             color: AppColors.teal, fontWeight: FontWeight.w900, letterSpacing: 1.4,
           )),
           const SizedBox(height: 8),
-          Text('Private by default. Cloud AI only when you choose.', style: Theme.of(context).textTheme.headlineMedium),
+          Text('Local-first. Online only when you choose.', style: Theme.of(context).textTheme.headlineMedium),
           const SizedBox(height: 8),
           const Text('You do not need to understand AI to use Sathi. Add your document, check the highlighted text, read the explanation, and choose the next step yourself.', style: TextStyle(color: AppColors.muted, height: 1.5)),
           const SizedBox(height: 18),
           const _StackLayer(
             title: 'Client app', icon: Icons.phone_android_rounded, subtitle: 'What you use',
             chips: ['Flutter', 'Dart', 'Platform Channels', 'BLoC', 'Secure storage'],
-            note: 'The app screens and state use Flutter + BLoC. Secure storage is used for the privacy preference, not for claim files.',
+            note: 'The app screens and state use Flutter + BLoC. Claim text, drafts, timeline and app-copied documents are encrypted with AES-GCM in app-private storage; the encryption key is held in Android Keystore/iOS Keychain through secure storage.',
             active: {'Flutter', 'Dart', 'BLoC', 'Secure storage'},
           ),
           const SizedBox(height: 12),
           const _StackLayer(
-            title: 'On-device AI', icon: Icons.memory_rounded, subtitle: 'Work that can stay on your phone',
-            chips: ['Google Gemma', 'MediaPipe LLM*', 'On-device OCR', 'PII masking', 'Voice input'],
-            note: 'Device speech input is wired with locale discovery and Hindi-first Hinglish fallback. For better Hindi-English code-switching, an optional Gemini transcription endpoint records a short WAV only after separate voice consent. OCR defaults to Latin script; Devanagari OCR needs additional native model configuration. On-device Gemma is not bundled.',
-            active: {'On-device OCR', 'PII masking', 'Voice input'},
+            title: 'Local processing', icon: Icons.memory_rounded, subtitle: 'Private work that stays on your phone',
+            chips: ['AES-GCM encrypted vault', 'Local document search', 'Offline FAQ', 'On-device OCR', 'Device speech'],
+            note: 'The app stores copied attachments, PII-masked OCR text, draft letters and activity notes in an AES-GCM encrypted app-private vault. Local document search and a small offline guide work without the Gemini API. OCR runs on supported images on-device. Device speech is provided by Android/iOS; whether the OS speech service itself uses a network depends on device settings. No on-device generative Gemma model is installed in this build.',
+            active: {'AES-GCM encrypted vault', 'Local document search', 'Offline FAQ', 'On-device OCR', 'Device speech'},
           ),
           const SizedBox(height: 12),
           const _StackLayer(
-            title: 'Cloud AI', icon: Icons.cloud_outlined, subtitle: 'Explain using verified policy sources',
-            chips: ['LLM API', 'RAG pipeline', 'Vector search', 'Clause citations', 'Guardrails'],
-            note: 'The Gemini agent generates responses from the actual question and any user-reviewed, PII-masked OCR excerpts supplied by the app. It does not inject a fictional claim into the prompt. RAG, verified policy-clause retrieval, user authentication, and live insurer APIs are not connected yet.',
-            active: {'LLM API', 'Guardrails'},
+            title: 'Optional online information', icon: Icons.cloud_outlined, subtitle: 'Only for a general question after local lookup',
+            chips: ['Gemini API', 'Question confirmation', 'No files attached', 'No chat history', 'No claim context'],
+            note: 'The app searches the encrypted local vault and offline guide first. If nothing is found, it asks you to confirm the exact general question before sending it to Gemini. The online request contains only that question. OCR text, file names, document contents, claimContext and previous chat turns are never attached. Personal or claim-specific questions remain local-only. Verified policy RAG and insurer APIs are not connected.',
+            active: {'Gemini API', 'Question confirmation', 'No files attached', 'No chat history', 'No claim context'},
           ),
           const SizedBox(height: 12),
           const _StackLayer(
@@ -140,22 +142,22 @@ class _TechnologyPageState extends State<TechnologyPage> {
           SathiCard(color: const Color(0xFFFFF5DD), child: const Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Icon(Icons.info_outline_rounded, color: Color(0xFF9A6700)),
             SizedBox(width: 10),
-            Expanded(child: Text('Model status: Gemini runs only when the backend is started and a valid GEMINI_API_KEY is configured. The assistant does not return canned text when live AI is unavailable. No insurer status API, authenticated customer account, or verified-policy RAG is connected. On-device Gemma is not bundled.', style: TextStyle(color: AppColors.ink, fontSize: 12, height: 1.5))),
+            Expanded(child: Text('Model status: local document search and the offline FAQ work without internet; this is retrieval/rules, not an on-device generative LLM. Gemini is called only for a general-information question after local lookup, online consent, and a per-question confirmation. Only that question is sent; docs, OCR, claim context and chat history are excluded. If Gemini is unavailable, Sathi shows an error instead of inventing a response. On-device Gemma and insurer integrations are not bundled.', style: TextStyle(color: AppColors.ink, fontSize: 12, height: 1.5))),
           ])),
           const SizedBox(height: 16),
           SathiCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             const Row(children: [Icon(Icons.lock_outline_rounded, color: AppColors.teal), SizedBox(width: 8), Expanded(child: Text('Your privacy choice', style: TextStyle(color: AppColors.navy, fontWeight: FontWeight.w900, fontSize: 16)))]),
             const SizedBox(height: 8),
             Text(_backendConfigured
-                ? 'The app sends your question and any OCR text you explicitly read on-device to the configured Gemini backend only after this switch is on. The app will not silently substitute a demo answer if the backend fails. No live insurer status connection exists.'
-                : 'A backend URL is not configured. Turning this on stores the preference only. Live answers require SATHI_API_BASE_URL, a running backend and a valid backend API key.', style: const TextStyle(color: AppColors.muted, fontSize: 12, height: 1.5)),
+                ? 'This switch allows optional online lookup for a general-information question only. Sathi searches local data first and asks you to confirm the exact question before sending it. Only that question is sent to Gemini—no attachments, OCR text, claim details or chat history. Personal and claim-specific questions stay local even when this switch is on.'
+                : 'A backend URL is not configured. Turning this on stores your preference only. Online general information also requires SATHI_API_BASE_URL, a running backend and a valid backend API key.', style: const TextStyle(color: AppColors.muted, fontSize: 12, height: 1.5)),
             const SizedBox(height: 10),
             if (_consentLoading)
               const LinearProgressIndicator()
             else
               SwitchListTile.adaptive(
                 contentPadding: EdgeInsets.zero,
-                title: const Text('Allow redacted cloud analysis', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
+                title: const Text('Allow online general-information lookup', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
                 subtitle: Text(_allowCloudConsent ? (_backendConfigured ? 'On · backend URL set; Gemini key required server-side' : 'On · no backend URL; live answers unavailable') : 'Off · cloud AI is disabled'),
                 value: _allowCloudConsent,
                 onChanged: _savingConsent ? null : _saveConsent,
@@ -164,15 +166,15 @@ class _TechnologyPageState extends State<TechnologyPage> {
             const Divider(height: 24),
             const Text('AI Hinglish voice transcription', style: TextStyle(fontWeight: FontWeight.w800, color: AppColors.navy, fontSize: 14)),
             const SizedBox(height: 5),
-            const Text('When enabled and a backend is configured, a short microphone recording is uploaded to the Sathi backend and transcribed by Gemini with Hindi-English code-switching instructions. The app does not deliberately persist recordings, but upload frameworks may buffer them temporarily while processing. Do not use real health documents or sensitive identifiers in the hackathon demo.', style: TextStyle(color: AppColors.muted, fontSize: 12, height: 1.5)),
+            const Text('Voice transcription is a separate, optional cloud feature. It is used only in General information mode, and Sathi shows a confirmation before each recording is uploaded for transcription. The audio itself leaves the device; never use this for names, diagnoses, policy/claim numbers, bills or private case details. In Private files mode, Sathi does not upload audio. Device speech recognition behaviour still depends on Android/iOS speech-service settings.', style: TextStyle(color: AppColors.muted, fontSize: 12, height: 1.5)),
             const SizedBox(height: 8),
             if (_consentLoading)
               const LinearProgressIndicator()
             else
               SwitchListTile.adaptive(
                 contentPadding: EdgeInsets.zero,
-                title: const Text('Allow cloud voice transcription', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
-                subtitle: Text(_allowVoiceConsent ? (_backendConfigured ? 'On · recording sent to configured backend when you tap the microphone' : 'On · no backend URL, device speech will be used') : 'Off · microphone uses device speech recognition'),
+                title: const Text('Allow optional cloud voice transcription', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
+                subtitle: Text(_allowVoiceConsent ? (_backendConfigured ? 'On · requires online-information consent too, General information mode, and a confirmation for each recording'  : 'On · no backend URL, device speech will be used') : 'Off · microphone uses device speech recognition'),
                 value: _allowVoiceConsent,
                 onChanged: _savingVoiceConsent ? null : _saveVoiceConsent,
               ),
@@ -185,13 +187,55 @@ class _TechnologyPageState extends State<TechnologyPage> {
           const SizedBox(height: 10),
           const _StepLine(number: '1', title: 'Add a document', description: 'Take a photo or choose an image/PDF from your phone.'),
           const _StepLine(number: '2', title: 'Read and check', description: 'For images, on-device OCR can extract text. Common identifiers are masked in the preview.'),
-          const _StepLine(number: '3', title: 'Understand the reason', description: 'With cloud consent enabled, the backend sends your question and any OCR text you reviewed to Gemini. If the backend/model is unavailable, Sathi shows an error instead of a canned answer. Verified policy retrieval and insurer status APIs are not yet connected.'),
+          const _StepLine(number: '3', title: 'Understand the reason', description: 'Sathi checks encrypted local documents and the offline guide first. For a general question only, online lookup requires consent and a confirmation showing exactly what will be sent. No files, OCR, claim context or chat history are attached. Verified policy retrieval and insurer status APIs are not yet connected.'),
           const _StepLine(number: '4', title: 'Review the next step', description: 'Edit your draft, submit it through the insurer’s official channel, then record your progress.'),
           const SizedBox(height: 12),
-          FilledButton.icon(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.arrow_back_rounded), label: const Text('Back to Sathi')),
+          OutlinedButton.icon(
+            onPressed: _consentLoading ? null : () => _confirmClearLocalData(context),
+            icon: const Icon(Icons.delete_forever_outlined),
+            label: const Text('Delete all Sathi local data'),
+            style: OutlinedButton.styleFrom(foregroundColor: AppColors.red),
+          ),
+          const SizedBox(height: 8),
+          const Text('This deletes Sathi’s encrypted app copies, saved OCR text, drafts, and local activity. It does not delete the original files in Photos or Downloads.', style: TextStyle(color: AppColors.muted, fontSize: 10, height: 1.45)),
+          const SizedBox(height: 12),
+                    FilledButton.icon(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.arrow_back_rounded), label: const Text('Back to Sathi')),
         ],
       ),
     );
+  }
+
+  Future<void> _confirmClearLocalData(BuildContext context) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Delete all local Sathi data?'),
+        content: const Text('This permanently removes Sathi’s encrypted copies of documents, saved OCR text, drafts and local activity from this app on this device. It does not affect the original files in Photos/Downloads. This action cannot be undone.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            style: FilledButton.styleFrom(backgroundColor: AppColors.red),
+            child: const Text('Delete local data'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !context.mounted) return;
+    try {
+      await context.read<ClaimCubit>().clearAllLocalData();
+      await _privacyStore.writeCloudConsent(false);
+      await _privacyStore.writeVoiceConsent(false);
+      if (!mounted) return;
+      setState(() {
+        _allowCloudConsent = false;
+        _allowVoiceConsent = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Sathi local data and online-consent settings were cleared.')));
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not clear all local data. Check device storage and try again.')));
+    }
   }
 }
 
@@ -204,9 +248,6 @@ class _StackLayer extends StatelessWidget {
   final List<String> chips;
   final String note;
   final Set<String> active;
-
-
-
 
   @override
   Widget build(BuildContext context) {

@@ -1,34 +1,29 @@
-# Gemini agent and Hinglish voice: implementation details
+# Gemini agent and Hinglish voice
 
-## Actual model invocation
+## General information text assistant
 
-`backend/main.py` reads `GEMINI_API_KEY` from the backend environment. The Flutter binary never contains this key. If the key is absent, `/v1/agent/chat` returns `mode: local_rules`; it does not pretend the model ran.
+`SathiAgentService.ask()` is a low-level online adapter for general information only. The `LocalFirstSathiAgentService` checks the encrypted local document vault and built-in offline FAQ first. If no local answer exists, the question is non-personal, the user has enabled online lookup, and the user confirms the exact question, Sathi sends only that question to Gemini.
 
-When configured, `/v1/agent/chat` uses a two-step Gemini model process:
+No OCR, filenames, attachments, `claimContext` or previous chat turns are sent. The backend enforces the same boundary and disables the old claim-analysis route.
 
-1. Planner call uses a Pydantic JSON schema to choose an intent and a single tool name from a strict allow-list.
-2. Server code executes that tool against fictional demo data.
-3. A second Gemini call turns the tool result into a simple answer in Hinglish (Roman script), Hindi (Devanagari), or English.
+## Private document workflow
 
-Available tools: `get_claim_status`, `get_required_documents`, `explain_claim_reason`, `prepare_reconsideration_draft`, and `none`. No tool submits an appeal or contacts an insurer.
+The claim-specific workflow stays local:
+- Add a document and copy it into Sathi's AES-GCM encrypted app-private vault.
+- Run on-device image OCR and mask common identifiers before storing OCR text.
+- Retrieve relevant local sentences by keyword matching.
+- Prepare a template-based editable reconsideration draft from locally retrieved excerpts.
+- Record app actions locally. The tracker does not represent insurer status.
 
-## Actual Hinglish voice path
+This is local retrieval + rules + a small fixed FAQ, **not** a fully offline generative LLM. PDF text extraction is not bundled; use image OCR for supported images or the paste-text path for text obtained elsewhere.
 
-The assistant defaults to Hinglish. Local mode chooses the available `hi-IN`/`hi_IN` speech locale first, with fallback to an available Hindi locale and then English. Locale ids are normalized so `hi-IN` and `hi_IN` don't fail an exact string comparison. The local intent router recognises frequently used Roman Hinglish and Devanagari terms such as `claim reject kyun hua`, `kaun se documents chahiye`, `claim ka status kya hai`, `रिजेक्ट`, `दस्तावेज`, and `स्टेटस`.
+## Hinglish voice
 
-Device speech engines do not guarantee accurate code-switching across all devices. For better mixed Hindi-English transcription, the opt-in cloud route records a short WAV and calls `/v1/voice/transcribe`; the backend invokes `gemini-3.5-transcribe` with explicit instructions to preserve Hindi-English code-switching. The user can review the transcript before asking the agent to act on it.
+- Device speech recognition is the default; locale availability and Hinglish accuracy vary by OS/provider.
+- Optional cloud Hinglish transcription requires separate voice consent, online-information consent, General information mode and confirmation before each recording. The audio itself leaves the device and is sent to the backend/Gemini for transcription.
+- The user reviews the transcript before tapping **Help me with this**. Speech transcription and answering are separate steps.
+- Never record a private claim question for cloud transcription.
 
-## Test from a terminal
+## Truth and production boundaries
 
-```bash
-curl http://127.0.0.1:8000/health
-curl -X POST http://127.0.0.1:8000/v1/agent/chat \
-  -H 'Content-Type: application/json' \
-  -d '{"message":"Mera claim reject ho gaya, ab kya karu?","language":"hinglish"}'
-```
-
-To test the microphone, use a real Android/iOS device or emulator with microphone permission and a supported recognition service. To test the AI voice route, enable the separate voice consent switch, configure the backend URL, set `GEMINI_API_KEY`, and tap the microphone to start/stop the recording.
-
-## Limits
-
-The cloud models are not an on-device Gemma runtime. The claim tools use the fabricated sample claim. Policy RAG, verified clause citations, real insurer APIs, identity checks, backend authentication and production access control must be built before any real claimant data can be used.
+Sathi has no insurer, TPA, hospital, claim portal or payment integration. It must not invent live status, coverage, amounts, receipts or claim recovery. The local development backend has no production authentication; set `SATHI_ALLOW_UNAUTHENTICATED_DEV=true` only for synthetic local testing. Before any real-customer pilot, add authentication, per-user authorization, secrets management, rate limits, retention/deletion controls, privacy review and security testing.

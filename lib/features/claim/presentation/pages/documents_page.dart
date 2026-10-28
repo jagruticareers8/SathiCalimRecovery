@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -34,7 +36,7 @@ class DocumentsPage extends StatelessWidget {
         const SizedBox(height: 18),
         SathiCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Row(children: [
-            Expanded(child: Text('$completedCount of $requiredCount common document types attached', style: const TextStyle(fontWeight: FontWeight.w800, color: AppColors.navy))),
+            Expanded(child: Text('$completedCount of $requiredCount document categories saved on this device', style: const TextStyle(fontWeight: FontWeight.w800, color: AppColors.navy))),
             Text('${(requiredCount == 0 ? 0 : completedCount / requiredCount * 100).round()}%', style: const TextStyle(color: AppColors.teal, fontWeight: FontWeight.w900)),
           ]),
           const SizedBox(height: 10),
@@ -49,7 +51,7 @@ class DocumentsPage extends StatelessWidget {
         Container(padding: const EdgeInsets.all(14), decoration: BoxDecoration(color: AppColors.mint, borderRadius: BorderRadius.circular(16)), child: const Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Icon(Icons.privacy_tip_outlined, color: AppColors.teal, size: 20),
           SizedBox(width: 9),
-          Expanded(child: Text('Privacy: OCR runs on your device. The file itself is not uploaded by this screen. If you enable cloud analysis and ask Sathi, masked OCR text may be sent to your configured AI backend—review it before enabling consent.', style: TextStyle(fontSize: 11, color: AppColors.tealDark, height: 1.45))),
+          Expanded(child: Text('Privacy: OCR runs on your device. Sathi stores its app copy in an encrypted local vault. Document text is searched locally and is never attached to the online Gemini request. Only a separate, confirmed general question may be sent online.', style: TextStyle(fontSize: 11, color: AppColors.tealDark, height: 1.45))),
         ])),
       ]),
     );
@@ -81,7 +83,7 @@ class DocumentsPage extends StatelessWidget {
               TextButton.icon(onPressed: () => _showPicker(context, document), icon: const Icon(Icons.change_circle_outlined, size: 16), label: const Text('Replace'), style: TextButton.styleFrom(padding: EdgeInsets.zero, visualDensity: VisualDensity.compact)),
               if (_canRunOcr(document)) TextButton.icon(onPressed: () => _readOcr(context, document), icon: const Icon(Icons.document_scanner_outlined, size: 16), label: const Text('Read text on device'), style: TextButton.styleFrom(padding: EdgeInsets.zero, visualDensity: VisualDensity.compact)),
               TextButton.icon(onPressed: () => _pasteDocumentText(context, document), icon: const Icon(Icons.content_paste_go_outlined, size: 16), label: const Text('Paste document text'), style: TextButton.styleFrom(padding: EdgeInsets.zero, visualDensity: VisualDensity.compact)),
-              TextButton.icon(onPressed: () => context.read<ClaimCubit>().removeDocument(document.id), icon: const Icon(Icons.delete_outline, size: 16), label: const Text('Remove'), style: TextButton.styleFrom(foregroundColor: AppColors.red, padding: EdgeInsets.zero, visualDensity: VisualDensity.compact)),
+              TextButton.icon(onPressed: () async => context.read<ClaimCubit>().removeDocument(document.id), icon: const Icon(Icons.delete_outline, size: 16), label: const Text('Remove'), style: TextButton.styleFrom(foregroundColor: AppColors.red, padding: EdgeInsets.zero, visualDensity: VisualDensity.compact)),
             ]),
           ] else ...[
             const SizedBox(height: 6),
@@ -103,27 +105,36 @@ class DocumentsPage extends StatelessWidget {
   };
 
   bool _canRunOcr(ClaimDocument document) {
-    final path = document.localPath?.toLowerCase();
-    return path != null && (path.endsWith('.png') || path.endsWith('.jpg') || path.endsWith('.jpeg') || path.endsWith('.webp'));
+    final sourceName = (document.localPath ?? document.fileName ?? '').toLowerCase();
+    final imageType = sourceName.endsWith('.png') || sourceName.endsWith('.jpg') ||
+        sourceName.endsWith('.jpeg') || sourceName.endsWith('.webp');
+    return imageType && (document.localPath != null || document.storedLocally);
   }
 
   Future<void> _readOcr(BuildContext context, ClaimDocument document) async {
-    final path = document.localPath;
-    if (path == null) return;
+    String? temporaryPath;
+    var loadingDialogOpen = true;
     showDialog<void>(
       context: context,
       barrierDismissible: false,
       builder: (dialogContext) => const AlertDialog(
-        content: Row(children: [CircularProgressIndicator(), SizedBox(width: 16), Expanded(child: Text('Reading this image on your phone…'))]),
+        content: Row(children: [CircularProgressIndicator(), SizedBox(width: 16), Expanded(child: Text('Decrypting if needed, then reading this image on your phone…'))]),
       ),
     );
     try {
+      final cubit = context.read<ClaimCubit>();
+      final path = await cubit.pathForOnDeviceOcr(document.id);
+      if (path == null) {
+        throw StateError('This image is not available in Sathi local storage. Please attach it again.');
+      }
+      if (path != document.localPath) temporaryPath = path;
       final text = await _ocrService.readImageText(path);
       final maskedText = PiiMasker.mask(text);
+      await cubit.saveExtractedText(document.id, maskedText);
       if (context.mounted) {
-        context.read<ClaimCubit>().saveExtractedText(document.id, maskedText);
+        Navigator.of(context, rootNavigator: true).pop();
+        loadingDialogOpen = false;
       }
-      if (context.mounted) Navigator.of(context, rootNavigator: true).pop();
       if (!context.mounted) return;
       await showDialog<void>(
         context: context,
@@ -149,8 +160,12 @@ class DocumentsPage extends StatelessWidget {
         ),
       );
     } catch (error) {
-      if (context.mounted) Navigator.of(context, rootNavigator: true).pop();
-      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not read image: $error')));
+      if (context.mounted && loadingDialogOpen) Navigator.of(context, rootNavigator: true).pop();
+      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not read image locally: $error')));
+    } finally {
+      if (temporaryPath != null) {
+        try { await File(temporaryPath).delete(); } catch (_) {}
+      }
     }
   }
 
@@ -166,7 +181,7 @@ class DocumentsPage extends StatelessWidget {
             child: SingleChildScrollView(
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 const Text(
-                  'For a PDF or a scanned document, copy the relevant decision-letter/policy text and paste it here. It stays on this device until you explicitly enable cloud analysis and ask Sathi.',
+                  'For a PDF or a scanned document, copy the relevant decision-letter/policy text and paste it here. It is saved in Sathi’s encrypted local vault. Private-file questions use this text locally and do not send it to Gemini.',
                   style: TextStyle(fontSize: 12, height: 1.45),
                 ),
                 const SizedBox(height: 10),
@@ -191,9 +206,9 @@ class DocumentsPage extends StatelessWidget {
       );
       if (confirmed != true || !context.mounted) return;
       final masked = PiiMasker.mask(textController.text.trim());
-      context.read<ClaimCubit>().saveExtractedText(document.id, masked);
+      await context.read<ClaimCubit>().saveExtractedText(document.id, masked);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(masked.isEmpty ? 'No text saved.' : 'Masked text saved on this device. Cloud sharing still requires consent.')),
+        SnackBar(content: Text(masked.isEmpty ? 'No text saved.' : 'Masked text saved in Sathi’s encrypted local vault. Private-file questions keep it on this device.')),
       );
     } finally {
       textController.dispose();
@@ -236,8 +251,8 @@ class DocumentsPage extends StatelessWidget {
         localPath = file?.path;
       }
       if (fileName == null) return;
-      context.read<ClaimCubit>().attachDocument(document.id, fileName, localPath: localPath);
-      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('${document.title} attached in demo.')));
+      await context.read<ClaimCubit>().attachDocument(document.id, fileName, localPath: localPath);
+      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('${document.title} encrypted and saved on this device.')));
     } catch (error) {
       if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Unable to choose file: $error')));
     }

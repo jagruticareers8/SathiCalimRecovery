@@ -1,24 +1,26 @@
 import unittest
-from main import detect_intent, execute_demo_tool, local_answer
+from main import detect_intent, is_private_or_sensitive_query, mask_pii
 
-class AgentRuleTests(unittest.TestCase):
-    def test_hinglish_rejection(self):
+
+class LocalFirstPrivacyTests(unittest.TestCase):
+    def test_hinglish_rejection_intent(self):
         self.assertEqual(detect_intent("Mera claim reject ho gaya, ab kya karu?"), "explain_rejection")
 
-    def test_hinglish_documents(self):
+    def test_document_intent(self):
         self.assertEqual(detect_intent("Kaun se documents chahiye?"), "required_documents")
 
-    def test_hindi_status(self):
+    def test_hindi_status_intent(self):
         self.assertEqual(detect_intent("मेरा क्लेम स्टेटस क्या है"), "claim_status")
 
-    def test_tool_does_not_submit_claim(self):
-        result = execute_demo_tool("prepare_reconsideration_draft")
-        self.assertIn("has not been sent", result["warning"])
+    def test_general_copay_definition_can_be_general(self):
+        self.assertFalse(is_private_or_sensitive_query("What does co-pay mean in health insurance?"))
 
-    def test_local_answer_marks_demo(self):
-        result = local_answer("claim reject kyun hua", "hinglish")
-        self.assertEqual(result["intent"], "explain_rejection")
-        self.assertEqual(result["mode"], "local_rules")
+    def test_claim_specific_query_stays_private(self):
+        self.assertTrue(is_private_or_sensitive_query("Mera claim reject kyun hua?"))
+
+    def test_personal_identifier_is_masked(self):
+        self.assertIn("[ID REDACTED]", mask_pii("My identifier is 1234 5678 9012"))
+
 
 if __name__ == "__main__":
     unittest.main()

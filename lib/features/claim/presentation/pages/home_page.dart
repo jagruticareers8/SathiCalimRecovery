@@ -59,7 +59,7 @@ class HomePage extends StatelessWidget {
               const Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 Text('Simple steps. Privacy by design.', style: TextStyle(color: AppColors.navy, fontWeight: FontWeight.w800, fontSize: 12)),
                 SizedBox(height: 3),
-                Text('Choose whether to send masked text to cloud AI. Your files are not automatically uploaded.', style: TextStyle(color: AppColors.muted, fontSize: 10, height: 1.35)),
+                Text('Private files and OCR stay in the encrypted local vault. Sathi searches on-device first; online lookup sends only a confirmed general question, never your files or chat history.', style: TextStyle(color: AppColors.muted, fontSize: 10, height: 1.35)),
               ])),
               IconButton(
                 tooltip: 'How Sathi works',
@@ -164,7 +164,7 @@ class HomePage extends StatelessWidget {
             child: const Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Icon(Icons.lock_outline_rounded, color: AppColors.teal, size: 20),
               SizedBox(width: 10),
-              Expanded(child: Text('Your files stay on this device. If you enable cloud analysis and ask Sathi, masked OCR text from documents you read may be sent to the configured AI backend. No insurer or TPA status connection is active.', style: TextStyle(color: AppColors.muted, fontSize: 11, height: 1.45))),
+              Expanded(child: Text('Sathi stores its app copy of your documents and OCR text in an encrypted local vault. Private questions and document text stay on-device. If you choose General information and confirm an online lookup, only that question is sent; no files, OCR or chat history are attached. No insurer/TPA status connection is active.', style: TextStyle(color: AppColors.muted, fontSize: 11, height: 1.45))),
             ]),
           ),
         ],

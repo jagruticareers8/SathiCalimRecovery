@@ -12,13 +12,17 @@ import '../../../../core/security/pii_masker.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/widgets/sathi_card.dart';
 import '../../data/sathi_agent_service.dart';
+import '../../data/local_first_sathi_agent_service.dart';
 import '../providers/claim_controller.dart';
 
 /// Voice/text entry for Sathi.
 /// - Default: device speech recognition, with Hindi-first locale for Hinglish.
-/// - If the user explicitly enables cloud voice transcription and a backend URL
-///   is configured, records a short WAV and sends it to the configured Sathi API.
-/// - Text goes to Gemini only when the separate cloud-text preference is enabled.
+/// - Private files mode is local-only: question, OCR and voice recording are not
+///   sent by this app to the Sathi backend.
+/// - General information mode searches locally first and asks for per-question
+///   confirmation before sending only a generic question to Gemini.
+/// - Optional cloud voice requires General information mode, two consent switches,
+///   and a per-recording confirmation.
 class SathiAssistantCard extends StatefulWidget {
   const SathiAssistantCard({super.key, required this.onNavigate, this.claimContext = const {}});
   final ValueChanged<int> onNavigate;
@@ -33,11 +37,13 @@ class _SathiAssistantCardState extends State<SathiAssistantCard> {
   final _textController = TextEditingController();
   final _speech = stt.SpeechToText();
   final _recorder = AudioRecorder();
-  final _agent = SathiAgentService();
+  final _cloudAgent = SathiAgentService();
+  late final LocalFirstSathiAgentService _agent = LocalFirstSathiAgentService(cloudService: _cloudAgent);
   final _privacyStore = PrivacySettingsStore();
   final List<Map<String, String>> _chatHistory = [];
 
   SathiLanguageMode _language = SathiLanguageMode.hinglish;
+  SathiQueryMode _queryMode = SathiQueryMode.privateLocal;
   bool _speechReady = false;
   Future<void>? _speechInitFuture;
   bool _listening = false;
@@ -90,10 +96,7 @@ class _SathiAssistantCardState extends State<SathiAssistantCard> {
           if (status == 'done' || status == 'notListening') {
             setState(() => _listening = false);
           } else if (status == 'listening') {
-            setState(() {
-              _listening = true;
-              _statusMessage = 'Listening… Speak now, then pause when you finish.';
-            });
+            setState(() => _listening = true);
           }
         },
         onError: (error) {
@@ -105,19 +108,20 @@ class _SathiAssistantCardState extends State<SathiAssistantCard> {
               normalized.contains('nospeech');
           setState(() {
             _listening = false;
-            // Only reset after a recognition timeout/no-match. Do not mark a
-            // fresh app launch as stale because of unrelated service errors.
-            if (isNoMatch) _deviceSpeechNeedsReset = true;
+            // Some Android recognizers leave the plugin/service in a stale
+            // session after ERROR_NO_MATCH. The next mic tap will cancel and
+            // re-arm it instead of accidentally treating the tap as Stop.
+            _deviceSpeechNeedsReset = true;
             if (isNoMatch) {
               _statusMessage = _receivedSpeechResult
-                  ? 'I caught some words but could not finish recognising the sentence. Please review the text or tap the mic to try again.'
-                  : 'I did not catch that. Tap the mic again, wait for Listening, then speak a short sentence.';
+                  ? 'I could not recognise the full sentence. I kept any transcript received; please review it or tap the mic to try again.'
+                  : 'I did not catch that. On the next try, wait for “Listening…” and speak close to the microphone for a short sentence.';
             } else if (normalized.contains('permission')) {
               _statusMessage = 'Microphone permission is needed. Allow it in your phone settings and try again.';
             } else if (normalized.contains('locale') || normalized.contains('language')) {
-              _statusMessage = 'This speech language is not installed on your phone. Install Hindi/English speech support or change the language.';
+              _statusMessage = 'This speech language is not installed on your phone. Install Hindi speech support or choose English.';
             } else {
-              _statusMessage = 'Device speech recognition stopped ($rawMessage). Tap the microphone to retry, enable AI Hinglish voice in How Sathi works, or type your question.';
+              _statusMessage = 'Device speech recognition stopped ($rawMessage). Tap the microphone to retry, use AI Hinglish voice in How Sathi works, or type your question.';
             }
           });
         },
@@ -170,10 +174,12 @@ class _SathiAssistantCardState extends State<SathiAssistantCard> {
       // discard the clip instead of uploading it.
       try {
         _allowCloudVoice = await _privacyStore.readVoiceConsent();
+        _allowCloudText = await _privacyStore.readCloudConsent();
       } catch (_) {
         _allowCloudVoice = false;
+        _allowCloudText = false;
       }
-      if (!_allowCloudVoice) {
+      if (!_allowCloudVoice || !_allowCloudText || _queryMode != SathiQueryMode.generalInformation) {
         final path = _recordingPath;
         try { await _recorder.cancel(); } catch (_) {}
         if (path != null) { try { await File(path).delete(); } catch (_) {} }
@@ -190,14 +196,17 @@ class _SathiAssistantCardState extends State<SathiAssistantCard> {
     // Re-read after returning from the privacy settings screen; Home may stay alive in the navigation stack.
     try {
       _allowCloudVoice = await _privacyStore.readVoiceConsent();
+      _allowCloudText = await _privacyStore.readCloudConsent();
     } catch (_) {
       _allowCloudVoice = false;
+      _allowCloudText = false;
     }
+    // A no-match/timeout can end the native recognition session without the
+    // plugin's isListening flag settling immediately. Recover before deciding
+    // whether this tap means Stop or Start.
     if (_deviceSpeechNeedsReset) {
-      // Recover only after a previous no-match/timeout. Do not cancel the
-      // recognizer on a normal first microphone tap; Android can race startup.
       try { await _speech.cancel(); } catch (_) {}
-      await Future<void>.delayed(const Duration(milliseconds: 250));
+      await Future<void>.delayed(const Duration(milliseconds: 350));
       _deviceSpeechNeedsReset = false;
       if (mounted) setState(() => _listening = false);
     } else if (_speech.isListening || _listening) {
@@ -207,11 +216,66 @@ class _SathiAssistantCardState extends State<SathiAssistantCard> {
     }
 
     // Cloud audio has its own explicit consent, separate from cloud text analysis.
-    if (_allowCloudVoice && _agent.isConfigured) {
+    if (_allowCloudVoice && _allowCloudText && _agent.isConfigured && _queryMode == SathiQueryMode.generalInformation) {
+      final confirmed = await _confirmCloudVoiceUpload();
+      if (!confirmed) {
+        if (mounted) setState(() => _statusMessage = 'Cloud recording cancelled. No recording was sent. You can type the question or use device speech; the phone speech service may have its own network behaviour.');
+        return;
+      }
       await _startCloudRecording();
     } else {
       await _startDeviceSpeech();
     }
+  }
+
+  Future<bool> _confirmCloudVoiceUpload() async {
+    if (!mounted) return false;
+    return await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Send voice to online transcription?'),
+        content: const Text(
+          'This recording will be sent to your configured Sathi backend and Gemini to turn speech into text. Use this only for a general question. Do not say your name, policy/claim number, diagnosis, bill amount, or private claim details. Your documents and chat history are not attached, but the audio itself leaves this device.',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel cloud recording')),
+          FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Send general audio')),
+        ],
+      ),
+    ) ?? false;
+  }
+
+  Future<bool> _confirmOnlineGeneralLookup(String question) async {
+    if (!mounted) return false;
+    final preview = question.length > 260 ? '${question.substring(0, 260)}…' : question;
+    return await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Use online general information?'),
+        content: SingleChildScrollView(child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Sathi searched your local documents and offline guide first. Nothing relevant was found. Only the question shown below will be sent to Gemini; no claim files, OCR text, documents, or chat history will be attached.'),
+            const SizedBox(height: 12),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(color: AppColors.mint, borderRadius: BorderRadius.circular(10)),
+              child: Text(preview, style: const TextStyle(color: AppColors.ink, fontSize: 13)),
+            ),
+            const SizedBox(height: 10),
+            const Text('If this includes personal details, a medical diagnosis, a claim/policy number, or a specific claim decision, cancel and use Private mode.', style: TextStyle(fontWeight: FontWeight.w700)),
+          ],
+        )),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel · stay local')),
+          FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Send question only')),
+        ],
+      ),
+    ) ?? false;
   }
 
   Future<void> _startDeviceSpeech() async {
@@ -341,7 +405,12 @@ class _SathiAssistantCardState extends State<SathiAssistantCard> {
     try {
       path = await _recorder.stop() ?? _recordingPath;
       if (path == null) throw StateError('No recording was created.');
-      final transcript = await _agent.transcribeHinglishAudio(path);
+      final transcript = await _agent.transcribeHinglishAudio(
+        path,
+        allowCloudVoice: _allowCloudVoice,
+        allowCloudGeneralInformation: _allowCloudText,
+        confirmedForGeneralUse: true,
+      );
       if (!mounted) return;
       setState(() {
         _textController.value = TextEditingValue(
@@ -377,18 +446,30 @@ class _SathiAssistantCardState extends State<SathiAssistantCard> {
       _replyMode = null;
       _replyModel = null;
       _evidenceUsed = const [];
-      _statusMessage = 'Connecting to Sathi AI…';
+      _statusMessage = _queryMode == SathiQueryMode.privateLocal
+          ? 'Searching your encrypted local documents…'
+          : 'Checking your encrypted documents and offline guide first…';
     });
     try {
       // Read the latest stored preference before each request; a UI switch can
       // never send text if the user's separate cloud-analysis preference is off.
-      _allowCloudText = await _privacyStore.readCloudConsent();
+      try {
+        _allowCloudText = await _privacyStore.readCloudConsent();
+      } catch (_) {
+        // A storage failure must never force a cloud request. Local search can
+        // still run because the router defaults the online consent to false.
+        _allowCloudText = false;
+      }
       final reply = await _agent.ask(
-        message: PiiMasker.mask(input),
+        message: input,
         language: _language,
         allowCloudAnalysis: _allowCloudText,
+        queryMode: _queryMode,
         claimContext: widget.claimContext,
+        // History is kept only in memory for this UI session and is deliberately
+        // never included in the online general-information request.
         chatHistory: List<Map<String, String>>.unmodifiable(_chatHistory),
+        confirmCloudFallback: _confirmOnlineGeneralLookup,
       );
       if (!mounted) return;
       if (reply.draft.trim().isNotEmpty) {
@@ -429,7 +510,7 @@ class _SathiAssistantCardState extends State<SathiAssistantCard> {
 
   @override
   Widget build(BuildContext context) {
-    final isMicActive = _listening || _startingDeviceSpeech || _recordingForCloud;
+    final isMicActive = _listening || _recordingForCloud;
     return SathiCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Row(children: [
         Container(width: 42, height: 42, decoration: BoxDecoration(color: AppColors.mint, borderRadius: BorderRadius.circular(13)), child: const Icon(Icons.forum_outlined, color: AppColors.teal)),
@@ -446,6 +527,35 @@ class _SathiAssistantCardState extends State<SathiAssistantCard> {
         )),
       ]),
       const SizedBox(height: 12),
+      const Text('Choose where Sathi can look', style: TextStyle(color: AppColors.navy, fontWeight: FontWeight.w800, fontSize: 12)),
+      const SizedBox(height: 6),
+      Wrap(spacing: 8, runSpacing: 6, children: [
+        ChoiceChip(
+          avatar: const Icon(Icons.lock_outline_rounded, size: 16),
+          label: const Text('Private files · on device'),
+          selected: _queryMode == SathiQueryMode.privateLocal,
+          onSelected: (_busy || _recordingForCloud || _listening) ? null : (_) => setState(() {
+            _queryMode = SathiQueryMode.privateLocal;
+            _statusMessage = 'Private mode: local documents only. Sathi will not send this question or file text to Gemini.';
+          }),
+        ),
+        ChoiceChip(
+          avatar: const Icon(Icons.public_rounded, size: 16),
+          label: const Text('General information'),
+          selected: _queryMode == SathiQueryMode.generalInformation,
+          onSelected: (_busy || _recordingForCloud || _listening) ? null : (_) => setState(() {
+            _queryMode = SathiQueryMode.generalInformation;
+            _statusMessage = 'General mode: local guide first. If needed, only a safe general question may go to Gemini; files and chat history are excluded.';
+          }),
+        ),
+      ]),
+      Text(
+        _queryMode == SathiQueryMode.privateLocal
+            ? 'Private mode searches encrypted document text saved on this phone. If no answer is found, Sathi asks you to add the missing text instead of going online.'
+            : 'General mode checks the offline guide first. Only if it cannot answer and online lookup is enabled may a non-personal question be sent; private documents and conversation history are never attached.',
+        style: const TextStyle(color: AppColors.muted, fontSize: 10, height: 1.4),
+      ),
+      const SizedBox(height: 12),
       TextField(
         controller: _textController,
         minLines: 1,
@@ -459,8 +569,8 @@ class _SathiAssistantCardState extends State<SathiAssistantCard> {
           },
           prefixIcon: const Icon(Icons.chat_bubble_outline),
           suffixIcon: IconButton(
-            tooltip: _recordingForCloud ? 'Stop AI transcription' : ((_listening || _startingDeviceSpeech) ? 'Stop device speech' : 'Speak your question'),
-            onPressed: (_busy || _startingDeviceSpeech) ? null : _toggleVoice,
+            tooltip: _recordingForCloud ? 'Stop AI transcription' : (_listening ? 'Stop device speech' : 'Speak your question'),
+            onPressed: _busy ? null : _toggleVoice,
             icon: Icon(isMicActive ? Icons.stop_circle_outlined : Icons.mic_none_rounded, color: isMicActive ? AppColors.red : AppColors.teal),
           ),
         ),
@@ -514,13 +624,17 @@ class _SathiAssistantCardState extends State<SathiAssistantCard> {
         ])),
       ],
       const SizedBox(height: 8),
-      const Text('Device voice uses your phone’s speech service. For better Hinglish code-switching, enable AI voice transcription in “How Sathi works”; the recording is sent to your configured backend only after separate consent. Do not speak Aadhaar, policy numbers or other sensitive identifiers.', style: TextStyle(color: AppColors.muted, fontSize: 10, height: 1.45)),
+      const Text('Private mode does not upload audio from Sathi. Device speech recognition is provided by your phone and its offline/network behaviour depends on Android/iOS settings. Cloud voice transcription is only used in General information mode after separate consent. Do not speak Aadhaar, policy numbers or other sensitive identifiers.', style: TextStyle(color: AppColors.muted, fontSize: 10, height: 1.45)),
     ]));
   }
 
   Widget _modeBadge(String? mode) {
     final (label, color) = switch (mode) {
-      'gemini_agent' => ('GEMINI AI', AppColors.tealDark),
+      'gemini_agent' => ('GEMINI · GENERAL', AppColors.tealDark),
+      'local_document_search' => ('LOCAL DOCUMENTS', AppColors.tealDark),
+      'local_faq' => ('OFFLINE GUIDE', AppColors.tealDark),
+      'local_private_no_match' => ('PRIVATE · LOCAL ONLY', AppColors.amber),
+      'local_no_match' => ('OFFLINE GUIDE', AppColors.amber),
       _ => ('AI UNAVAILABLE', AppColors.amber),
     };
     return Container(
