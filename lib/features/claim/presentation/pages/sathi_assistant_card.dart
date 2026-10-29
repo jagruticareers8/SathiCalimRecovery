@@ -631,8 +631,13 @@ class _SathiAssistantCardState extends State<SathiAssistantCard> {
   Widget _modeBadge(String? mode) {
     final (label, color) = switch (mode) {
       'gemini_agent' => ('GEMINI · GENERAL', AppColors.tealDark),
+      'on_device_rag' => ('ON-DEVICE AI', AppColors.tealDark),
+      'local_document_fact' => ('LOCAL OCR', AppColors.tealDark),
       'local_document_search' => ('LOCAL DOCUMENTS', AppColors.tealDark),
       'local_faq' => ('OFFLINE GUIDE', AppColors.tealDark),
+      'local_fact_not_found' => ('LOCAL ONLY', AppColors.amber),
+      'local_document_fact_not_found' => ('LOCAL ONLY', AppColors.amber),
+      'on_device_rag_error' => ('LOCAL AI ERROR', AppColors.amber),
       'local_private_no_match' => ('PRIVATE · LOCAL ONLY', AppColors.amber),
       'local_no_match' => ('OFFLINE GUIDE', AppColors.amber),
       _ => ('AI UNAVAILABLE', AppColors.amber),

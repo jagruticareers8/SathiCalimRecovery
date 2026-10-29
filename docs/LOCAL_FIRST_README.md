@@ -8,7 +8,7 @@ Sathi is a Flutter hackathon MVP for one focused journey: help a person organise
 
 1. The user adds a document. Sathi copies it into its app-private vault and encrypts that copy with AES-GCM. The vault key is held in Android Keystore/iOS Keychain via `flutter_secure_storage`.
 2. For supported images, OCR runs on-device with Google ML Kit. The extracted text is PII-masked and saved in the encrypted local vault. For PDFs, the user can paste text they extracted elsewhere; this archive does not include a PDF text-extraction engine.
-3. Sathi searches local document text and an offline FAQ first. This uses local keyword/sentence retrieval and rules; it is not a fully offline generative LLM.
+3. Sathi searches local document text and an offline FAQ first. If the optional Qwen3 + EmbeddingGemma models have been downloaded, it also runs true on-device semantic RAG and answer generation. Without the model files, only local retrieval/rules/FAQ are available.
 4. A question that appears personal or claim-specific remains local. If a generic question is not found locally and the user has enabled online lookup, Sathi shows a confirmation dialog with the exact question. Only that question is sent to the backend/Gemini. No files, OCR, claim context, document names, or chat history are attached.
 5. Cloud voice transcription is optional and separately consented. It sends a short WAV to the configured backend for Gemini transcription only after the user chooses General information mode and confirms the upload. Do not speak personal medical/claim details during cloud transcription.
 6. The reconsideration letter is a local editable draft. The tracker records actions made by the user on the device; it does not show verified insurer status.
@@ -17,7 +17,7 @@ Sathi is a Flutter hackathon MVP for one focused journey: help a person organise
 
 - Flutter + Dart + BLoC UI and state management.
 - AES-GCM encrypted local vault for app-owned copies of attachments, masked OCR text, drafts and local activity.
-- Local OCR for supported images (Latin text-recognition script configured by default).
+- Local OCR for supported images using both Latin and Devanagari recognizers. PDFs require copy/paste of text from a PDF viewer.
 - Local document search and offline insurance FAQ in English, Hindi and Roman Hinglish.
 - Device speech input with locale detection and recovery UI.
 - Optional confirmed online general-information answers through the Gemini backend.
@@ -31,7 +31,7 @@ Sathi is a Flutter hackathon MVP for one focused journey: help a person organise
 - No live insurer/TPA, hospital, policy, claims or grievance API.
 - No claim submission, resubmission, escalation or live-status polling.
 - No verified policy RAG, vector database, or insurer-approved clause retrieval.
-- No on-device generative Gemma/MediaPipe model bundled in this archive. Offline behavior is retrieval + fixed FAQ + rules.
+- Optional on-device generation is supported by Qwen3 0.6B + EmbeddingGemma 2 Text 270M, downloaded by the user from How Sathi works. The source archive does not bundle their ~500 MB model files.
 - No production authentication, tenant isolation, rate limiting, analytics consent framework, or production security audit.
 
 ## Project structure

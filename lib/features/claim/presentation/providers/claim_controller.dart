@@ -110,7 +110,7 @@ class ClaimCubit extends Cubit<ClaimState> {
 
   Future<void> _persistLocalState() async {
     try {
-      await _vault.saveSnapshot(_snapshotFor(state));
+      await _vault.mergeSnapshot(_snapshotFor(state));
     } catch (_) {
       // Do not log private text. UI state remains available for this session;
       // callers that must persist a selected attachment receive an explicit error.

@@ -23,7 +23,10 @@ class LocalPrivateVault {
 
   final FlutterSecureStorage _secureStorage;
   final AesGcm _cipher = AesGcm.with256bits();
-  Future<void> _writeTail = Future<void>.value();
+  // All vault instances in this process point at the same encrypted snapshot.
+  // A shared queue prevents a claim-state write and a RAG-cache write from
+  // racing and overwriting each other's JSON fields.
+  static Future<void> _writeTail = Future<void>.value();
 
   Future<Directory> _rootDirectory() async {
     final support = await getApplicationSupportDirectory();
@@ -72,6 +75,10 @@ class LocalPrivateVault {
 
   Future<Map<String, dynamic>> readSnapshot() async {
     await _writeTail.catchError((Object _) {});
+    return _readSnapshotFromDisk();
+  }
+
+  Future<Map<String, dynamic>> _readSnapshotFromDisk() async {
     final file = await _snapshotFile();
     if (!await file.exists()) {
       return <String, dynamic>{
@@ -88,6 +95,21 @@ class LocalPrivateVault {
       throw const FormatException('Sathi local-vault snapshot is not valid JSON.');
     }
     return decoded;
+  }
+
+  /// Serializes a shallow merge into the encrypted snapshot. Used by features
+  /// such as the local RAG vector cache so normal claim-state writes do not
+  /// erase unrelated encrypted metadata.
+  Future<void> mergeSnapshot(Map<String, dynamic> updates) {
+    final next = _writeTail.catchError((Object _) {}).then((_) async {
+      final current = await _readSnapshotFromDisk();
+      final merged = <String, dynamic>{...current, ...updates};
+      final encoded = jsonEncode(merged);
+      final file = await _snapshotFile();
+      await file.writeAsBytes(await _encryptBytes(utf8.encode(encoded)), flush: true);
+    });
+    _writeTail = next;
+    return next;
   }
 
   Future<void> saveSnapshot(Map<String, dynamic> snapshot) {
@@ -138,10 +160,14 @@ class LocalPrivateVault {
     if (await file.exists()) await file.delete();
   }
 
-  Future<void> clearAll() async {
-    final root = await _rootDirectory();
-    if (await root.exists()) await root.delete(recursive: true);
-    await _secureStorage.delete(key: _keyName);
+  Future<void> clearAll() {
+    final next = _writeTail.catchError((Object _) {}).then((_) async {
+      final root = await _rootDirectory();
+      if (await root.exists()) await root.delete(recursive: true);
+      await _secureStorage.delete(key: _keyName);
+    });
+    _writeTail = next;
+    return next;
   }
 
   Future<List<int>> _encryptBytes(List<int> clearBytes) async {

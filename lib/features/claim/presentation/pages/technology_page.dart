@@ -4,6 +4,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../../../core/security/privacy_settings_store.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/widgets/sathi_card.dart';
+import '../../data/on_device_rag_service.dart';
 import '../providers/claim_controller.dart';
 
 class TechnologyPage extends StatefulWidget {
@@ -15,6 +16,12 @@ class TechnologyPage extends StatefulWidget {
 
 class _TechnologyPageState extends State<TechnologyPage> {
   final _privacyStore = PrivacySettingsStore();
+  final _localRag = SathiOnDeviceRagService();
+  bool _checkingLocalModels = true;
+  bool _installingLocalModels = false;
+  bool _localModelsReady = false;
+  int _modelDownloadProgress = 0;
+  String _modelDownloadLabel = '';
   bool _consentLoading = true;
   bool _allowCloudConsent = false;
   bool _allowVoiceConsent = false;
@@ -27,6 +34,61 @@ class _TechnologyPageState extends State<TechnologyPage> {
   void initState() {
     super.initState();
     _loadConsent();
+    _checkLocalModels();
+  }
+
+  Future<void> _checkLocalModels() async {
+    try {
+      final ready = await _localRag.modelsReady;
+      if (!mounted) return;
+      setState(() {
+        _localModelsReady = ready;
+        _checkingLocalModels = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _localModelsReady = false;
+        _checkingLocalModels = false;
+      });
+    }
+  }
+
+  Future<void> _installLocalModels() async {
+    setState(() {
+      _installingLocalModels = true;
+      _modelDownloadProgress = 0;
+      _modelDownloadLabel = 'Preparing on-device AI';
+    });
+    try {
+      await _localRag.installModels(onProgress: (label, progress) {
+        if (!mounted) return;
+        setState(() {
+          _modelDownloadLabel = label;
+          _modelDownloadProgress = progress.clamp(0, 100).round();
+        });
+      });
+      final ready = await _localRag.modelsReady;
+      if (!mounted) return;
+      setState(() => _localModelsReady = ready);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(ready
+            ? 'Offline AI is ready. Sathi can now retrieve and generate answers on this device.'
+            : 'The model download completed, but the runtime did not confirm both models. Please retry.'),
+      ));
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Could not install offline AI. Check your internet connection and device storage, then retry.'),
+      ));
+    } finally {
+      if (mounted) {
+        setState(() {
+          _installingLocalModels = false;
+          _checkingLocalModels = false;
+        });
+      }
+    }
   }
 
   Future<void> _loadConsent() async {
@@ -118,17 +180,20 @@ class _TechnologyPageState extends State<TechnologyPage> {
             active: {'Flutter', 'Dart', 'BLoC', 'Secure storage'},
           ),
           const SizedBox(height: 12),
-          const _StackLayer(
+          _StackLayer(
             title: 'Local processing', icon: Icons.memory_rounded, subtitle: 'Private work that stays on your phone',
-            chips: ['AES-GCM encrypted vault', 'Local document search', 'Offline FAQ', 'On-device OCR', 'Device speech'],
-            note: 'The app stores copied attachments, PII-masked OCR text, draft letters and activity notes in an AES-GCM encrypted app-private vault. Local document search and a small offline guide work without the Gemini API. OCR runs on supported images on-device. Device speech is provided by Android/iOS; whether the OS speech service itself uses a network depends on device settings. No on-device generative Gemma model is installed in this build.',
-            active: {'AES-GCM encrypted vault', 'Local document search', 'Offline FAQ', 'On-device OCR', 'Device speech'},
+            chips: const ['AES-GCM encrypted vault', 'On-device RAG', 'Qwen3 0.6B', 'EmbeddingGemma 2', 'On-device OCR', 'Device speech'],
+            note: 'The app stores copied attachments, PII-masked OCR text, drafts and activity notes in an AES-GCM encrypted app-private vault. After downloading the optional Qwen3 0.6B language model and EmbeddingGemma 2 embedding model, Sathi can retrieve relevant local passages and generate grounded answers entirely on the device. OCR runs on supported images on-device. Device speech depends on Android/iOS speech-service settings. The model download itself needs internet once; inference and retrieval then run locally. Teal chips are available now; the two models and local RAG are highlighted only after both models are installed.',
+            active: {
+              'AES-GCM encrypted vault', 'On-device OCR', 'Device speech',
+              if (_localModelsReady) ...{'On-device RAG', 'Qwen3 0.6B', 'EmbeddingGemma 2'},
+            },
           ),
           const SizedBox(height: 12),
           const _StackLayer(
             title: 'Optional online information', icon: Icons.cloud_outlined, subtitle: 'Only for a general question after local lookup',
             chips: ['Gemini API', 'Question confirmation', 'No files attached', 'No chat history', 'No claim context'],
-            note: 'The app searches the encrypted local vault and offline guide first. If nothing is found, it asks you to confirm the exact general question before sending it to Gemini. The online request contains only that question. OCR text, file names, document contents, claimContext and previous chat turns are never attached. Personal or claim-specific questions remain local-only. Verified policy RAG and insurer APIs are not connected.',
+            note: 'When the on-device models are installed, the app embeds local document chunks, retrieves semantically relevant passages, and generates an answer in the local Qwen model. OCR text, local embeddings and claim context remain encrypted and on-device. If the local model cannot find relevant evidence, personal/claim-specific questions stay local-only. Only a separate general-information question can be sent to Gemini after consent and per-question confirmation; the online request contains only that question. Insurer status APIs are not connected.',
             active: {'Gemini API', 'Question confirmation', 'No files attached', 'No chat history', 'No claim context'},
           ),
           const SizedBox(height: 12),
@@ -139,10 +204,33 @@ class _TechnologyPageState extends State<TechnologyPage> {
             active: {'REST + WebSocket', 'CI/CD'},
           ),
           const SizedBox(height: 14),
-          SathiCard(color: const Color(0xFFFFF5DD), child: const Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Icon(Icons.info_outline_rounded, color: Color(0xFF9A6700)),
-            SizedBox(width: 10),
-            Expanded(child: Text('Model status: local document search and the offline FAQ work without internet; this is retrieval/rules, not an on-device generative LLM. Gemini is called only for a general-information question after local lookup, online consent, and a per-question confirmation. Only that question is sent; docs, OCR, claim context and chat history are excluded. If Gemini is unavailable, Sathi shows an error instead of inventing a response. On-device Gemma and insurer integrations are not bundled.', style: TextStyle(color: AppColors.ink, fontSize: 12, height: 1.5))),
+          SathiCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            const Row(children: [Icon(Icons.offline_bolt_rounded, color: AppColors.teal), SizedBox(width: 8), Expanded(child: Text('Install private on-device AI', style: TextStyle(color: AppColors.navy, fontWeight: FontWeight.w900, fontSize: 16)))]),
+            const SizedBox(height: 8),
+            const Text('Download two model files once (about 500 MB total, plus extra free storage). Qwen3 generates answers and EmbeddingGemma finds the most relevant passages in your saved documents. After installation, local retrieval and generation do not need Gemini or the internet. Your private claim text and embeddings remain in the encrypted local vault.', style: TextStyle(color: AppColors.muted, fontSize: 12, height: 1.5)),
+            const SizedBox(height: 12),
+            Text(_checkingLocalModels ? 'Checking installed model files…' : _localModelsReady ? 'Status: both on-device models are installed' : 'Status: on-device models are not installed', style: const TextStyle(color: AppColors.navy, fontSize: 12, fontWeight: FontWeight.w700)),
+            if (_installingLocalModels) ...[
+              const SizedBox(height: 8),
+              LinearProgressIndicator(value: _modelDownloadProgress / 100),
+              const SizedBox(height: 5),
+              Text('$_modelDownloadLabel · $_modelDownloadProgress%', style: const TextStyle(color: AppColors.muted, fontSize: 11)),
+            ],
+            const SizedBox(height: 10),
+            FilledButton.icon(
+              onPressed: (_checkingLocalModels || _installingLocalModels || _localModelsReady) ? null : _installLocalModels,
+              icon: Icon(_localModelsReady ? Icons.check_circle_outline : Icons.download_rounded),
+              label: Text(_localModelsReady ? 'Offline AI ready' : _installingLocalModels ? 'Downloading models…' : 'Download offline AI models'),
+            ),
+            if (_localModelsReady) TextButton.icon(
+              onPressed: _checkLocalModels,
+              icon: const Icon(Icons.refresh_rounded),
+              label: const Text('Recheck model status'),
+            ),
+            const SizedBox(height: 4),
+            const Text('Device requirements: Android 11 / API 30 or later on arm64-v8a, or iOS 15.5 or later, plus enough free memory and storage. Some x86_64 emulators cannot run the local model. On iOS, the largest models may also need Apple-approved memory entitlements and matching signing. If installation is unsupported, local text search and the offline FAQ remain available.', style: TextStyle(color: AppColors.muted, fontSize: 11, height: 1.4)),
+            const SizedBox(height: 6),
+            const Text('The compact local model may be less capable than cloud Gemini. Sathi should cite retrieved local evidence and say when the saved text does not answer a question. This is not an insurer connection.', style: TextStyle(color: AppColors.muted, fontSize: 11, height: 1.4)),
           ])),
           const SizedBox(height: 16),
           SathiCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [

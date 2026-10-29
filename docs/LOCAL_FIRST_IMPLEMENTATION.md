@@ -34,6 +34,6 @@ If local answer is absent:
 - PII masking does not identify every personal detail. A heuristic query filter can miss or over-block questions. The confirmation screen is not a perfect privacy classifier; the user must inspect the exact question.
 - Device speech engines may process speech according to their own network settings.
 - The app does not include a local generative LLM. Local document answers use keyword retrieval and rules/FAQ.
-- Image OCR is configured for Latin script; Devanagari OCR requires a separately configured recognizer/model.
+- Image OCR uses on-device ML Kit Latin and Devanagari recognizers. Android includes the Devanagari text-recognition dependency; iOS includes the Devanagari pod and targets iOS 15.5+. PDF OCR is not bundled.
 - The local vault encrypts app-owned copies, but this does not encrypt the original file in Photos/Downloads, screenshots, OS backups, or files the user exported outside the app.
 - No insurer/TPA API, real claim status or claim submission exists.

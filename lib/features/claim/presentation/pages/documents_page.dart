@@ -22,8 +22,9 @@ class DocumentsPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final claim = context.watch<ClaimCubit>().state;
-    final requiredCount = claim.documents.length;
-    final completedCount = claim.documents.where((d) => d.uploaded).length;
+    final savedCount = claim.documents.where((d) => d.uploaded).length;
+    final decisionRows = claim.documents.where((d) => d.id == 'decision');
+    final decisionLetter = decisionRows.isEmpty ? null : decisionRows.first;
 
     return SingleChildScrollView(
       padding: const EdgeInsets.fromLTRB(20, 24, 20, 28),
@@ -32,17 +33,59 @@ class DocumentsPage extends StatelessWidget {
         const SizedBox(height: 7),
         Text('Bring your evidence together', style: Theme.of(context).textTheme.headlineMedium),
         const SizedBox(height: 8),
-        const Text('Use the insurer’s letter to confirm exactly which documents are needed. This list is a starting point, not a guarantee of coverage.', style: TextStyle(color: AppColors.muted, height: 1.45)),
-        const SizedBox(height: 18),
+        const Text('Start with the insurer’s decision or rejection letter. Add other records only when they help explain the claim or the insurer requests them.', style: TextStyle(color: AppColors.muted, height: 1.45)),
+        const SizedBox(height: 12),
         SathiCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Row(children: [
-            Expanded(child: Text('$completedCount of $requiredCount document categories saved on this device', style: const TextStyle(fontWeight: FontWeight.w800, color: AppColors.navy))),
-            Text('${(requiredCount == 0 ? 0 : completedCount / requiredCount * 100).round()}%', style: const TextStyle(color: AppColors.teal, fontWeight: FontWeight.w900)),
-          ]),
+          const Text('FIRST STEP: DECISION LETTER', style: TextStyle(fontSize: 10, color: AppColors.teal, fontWeight: FontWeight.w900, letterSpacing: 1.2)),
+          const SizedBox(height: 6),
+          Text((decisionLetter?.uploaded ?? false) ? ((decisionLetter?.extractedText ?? '').trim().isNotEmpty ? 'Decision letter text is saved locally.' : 'Decision letter saved. Next, read its text or paste text from the PDF.') : 'Add the rejection or partial-approval letter so Sathi can answer from its wording.', style: const TextStyle(fontWeight: FontWeight.w700, color: AppColors.navy, height: 1.4)),
+          const SizedBox(height: 6),
+          const Text('Automatic OCR currently reads images on-device. For PDFs, open the PDF, copy the relevant text, then choose “Paste document text”. No file is submitted to an insurer.', style: TextStyle(fontSize: 11, color: AppColors.muted, height: 1.4)),
           const SizedBox(height: 10),
-          ClipRRect(borderRadius: BorderRadius.circular(8), child: LinearProgressIndicator(value: requiredCount == 0 ? 0 : completedCount / requiredCount, minHeight: 7, backgroundColor: AppColors.border, color: AppColors.teal)),
+          Row(children: [
+            const Icon(Icons.folder_outlined, color: AppColors.teal, size: 18),
+            const SizedBox(width: 7),
+            Expanded(child: Text('$savedCount file(s) saved in your local workspace', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: AppColors.navy))),
+          ]),
+          if (decisionLetter != null) ...[
+            const SizedBox(height: 10),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                onPressed: () async {
+                  if (!decisionLetter.uploaded) {
+                    await _showPicker(context, decisionLetter);
+                  } else if ((decisionLetter.extractedText ?? '').trim().isNotEmpty) {
+                    await _pasteDocumentText(context, decisionLetter);
+                  } else if (_canRunOcr(decisionLetter)) {
+                    await _readOcr(context, decisionLetter);
+                  } else {
+                    await _pasteDocumentText(context, decisionLetter);
+                  }
+                },
+                icon: Icon(
+                  !decisionLetter.uploaded
+                      ? Icons.add_circle_outline
+                      : (decisionLetter.extractedText ?? '').trim().isNotEmpty
+                          ? Icons.edit_note_outlined
+                          : _canRunOcr(decisionLetter)
+                              ? Icons.document_scanner_outlined
+                              : Icons.content_paste_go_outlined,
+                ),
+                label: Text(
+                  !decisionLetter.uploaded
+                      ? 'Add decision letter'
+                      : (decisionLetter.extractedText ?? '').trim().isNotEmpty
+                          ? 'Review or edit saved text'
+                          : _canRunOcr(decisionLetter)
+                              ? 'Read text on device'
+                              : 'Paste document text',
+                ),
+              ),
+            ),
+          ],
         ])),
-        const SizedBox(height: 15),
+        const SizedBox(height: 14),
         ...claim.documents.map((document) => Padding(
           padding: const EdgeInsets.only(bottom: 10),
           child: _documentCard(context, document),
@@ -78,6 +121,15 @@ class DocumentsPage extends StatelessWidget {
               const SizedBox(width: 4),
               Expanded(child: Text(document.fileName ?? 'Attached', style: const TextStyle(color: AppColors.green, fontSize: 10, fontWeight: FontWeight.w700), maxLines: 1, overflow: TextOverflow.ellipsis)),
             ]),
+            const SizedBox(height: 4),
+            Text(
+              (document.extractedText ?? '').trim().isNotEmpty
+                  ? 'Text ready for private questions · ${(document.extractedText ?? '').trim().length} characters saved locally'
+                  : _canRunOcr(document)
+                      ? 'Image saved. Tap “Read text on device” before asking questions about its contents.'
+                      : 'File saved. For a PDF, copy its text and use “Paste document text”.',
+              style: const TextStyle(color: AppColors.muted, fontSize: 10, height: 1.35),
+            ),
             const SizedBox(height: 7),
             Wrap(spacing: 10, runSpacing: 0, children: [
               TextButton.icon(onPressed: () => _showPicker(context, document), icon: const Icon(Icons.change_circle_outlined, size: 16), label: const Text('Replace'), style: TextButton.styleFrom(padding: EdgeInsets.zero, visualDensity: VisualDensity.compact)),
