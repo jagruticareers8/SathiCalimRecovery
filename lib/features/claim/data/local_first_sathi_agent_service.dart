@@ -50,6 +50,13 @@ class LocalFirstSathiAgentService {
     // 1. Search the encrypted local vault and current in-memory OCR first.
     final localSnapshot = await _vault.readSnapshot();
     final documents = _collectDocuments(localSnapshot, claimContext);
+
+    // Answer simple factual questions from the full locally saved OCR text before
+    // ranking excerpts. This avoids showing snippets without answering questions
+    // such as 'Mera claim kitne ka tha?'. This path never calls the cloud service.
+    final factReply = _answerLocalDocumentFact(question, documents, language);
+    if (factReply != null) return factReply;
+
     final excerpts = _findRelevantExcerpts(question, documents);
     if (excerpts.isNotEmpty) {
       final intent = _intent(question);
@@ -147,6 +154,174 @@ class LocalFirstSathiAgentService {
     }
     return docs;
   }
+
+  /// Handles labelled factual fields (claim amount, approved amount, and amount
+  /// pending) directly from local OCR text. It deliberately does not call Gemini.
+  SathiAgentReply? _answerLocalDocumentFact(
+    String question,
+    List<_LocalDocument> docs,
+    SathiLanguageMode language,
+  ) {
+    final kind = _amountQuestionType(question);
+    if (kind == null || docs.isEmpty) return null;
+
+    final allText = docs.map((doc) => '${doc.title}\n${doc.text}').join('\n\n');
+    final amount = _extractLabeledAmount(allText, kind);
+    if (amount == null) {
+      final message = switch (language) {
+        SathiLanguageMode.hinglish => 'Mujhe saved document ke OCR text mein ${_amountLabel(kind, language)} ka exact amount nahi mila. Maine poora saved text locally check kiya aur kuch bhi online nahi bheja. Documents screen par “Read text on device” dobara chalayein, ya amount wali line ka clear photo upload karein.',
+        SathiLanguageMode.hindi => 'मुझे सेव किए गए दस्तावेज़ के OCR टेक्स्ट में ${_amountLabel(kind, language)} की सटीक राशि नहीं मिली। मैंने टेक्स्ट केवल स्थानीय रूप से जाँचा है; कुछ भी ऑनलाइन नहीं भेजा। Documents स्क्रीन पर “Read text on device” फिर चलाएँ या राशि वाली पंक्ति की स्पष्ट तस्वीर जोड़ें।',
+        SathiLanguageMode.english => 'I could not extract the exact ${_amountLabel(kind, language)} from the saved OCR text. I checked locally and did not send anything online. Run “Read text on device” again, or upload a clearer image of the amount line.',
+      };
+      return SathiAgentReply(
+        answer: message,
+        intent: '${kind}_amount',
+        actionIndex: 2,
+        actionLabel: language == SathiLanguageMode.hindi ? 'दस्तावेज़ खोलें' : 'Open documents',
+        mode: 'local_document_fact_not_found',
+        notice: 'ON DEVICE · Amount was not readable in the saved OCR text. No cloud request was made.',
+      );
+    }
+
+    final claimed = kind == 'claimed' ? amount : _extractLabeledAmount(allText, 'claimed');
+    final approved = kind == 'approved' ? amount : _extractLabeledAmount(allText, 'approved');
+    final pending = kind == 'pending' ? amount : _extractLabeledAmount(allText, 'pending');
+
+    final additionalFacts = <String>[];
+    if (kind != 'claimed' && claimed != null) {
+      additionalFacts.add('${_amountLabel('claimed', language)} ${_formatLocalMoney(claimed)}');
+    }
+    if (kind != 'approved' && approved != null) {
+      additionalFacts.add('${_amountLabel('approved', language)} ${_formatLocalMoney(approved)}');
+    }
+    if (kind != 'pending' && pending != null) {
+      additionalFacts.add('${_amountLabel('pending', language)} ${_formatLocalMoney(pending)}');
+    }
+
+    final mainAmount = _formatLocalMoney(amount);
+    final related = additionalFacts.isEmpty ? '' : '\n${additionalFacts.join('\n')}';
+    final answer = switch (language) {
+      SathiLanguageMode.hinglish => switch (kind) {
+          'claimed' => 'Aapke phone par saved document ke mutabik, claim ki amount $mainAmount thi.$related\n\nYeh jawab saved OCR text se locally nikala gaya hai; live insurer record verify nahi hua.',
+          'approved' => 'Aapke phone par saved document ke mutabik, approved amount $mainAmount hai.$related\n\nYeh saved OCR text par based hai; live insurer record verify nahi hua.',
+          _ => 'Aapke phone par saved document ke mutabik, review ke liye pending amount $mainAmount hai.$related\n\nYeh saved OCR text par based hai; live insurer record verify nahi hua.',
+        },
+      SathiLanguageMode.hindi => switch (kind) {
+          'claimed' => 'आपके फोन पर सेव दस्तावेज़ के अनुसार, दावा की गई राशि $mainAmount थी.$related\n\nयह जवाब स्थानीय OCR टेक्स्ट से निकाला गया है; बीमा कंपनी का लाइव रिकॉर्ड सत्यापित नहीं हुआ है।',
+          'approved' => 'आपके फोन पर सेव दस्तावेज़ के अनुसार, स्वीकृत राशि $mainAmount है.$related\n\nयह स्थानीय OCR टेक्स्ट पर आधारित है; बीमा कंपनी का लाइव रिकॉर्ड सत्यापित नहीं हुआ है।',
+          _ => 'आपके फोन पर सेव दस्तावेज़ के अनुसार, समीक्षा के लिए लंबित राशि $mainAmount है.$related\n\nयह स्थानीय OCR टेक्स्ट पर आधारित है; बीमा कंपनी का लाइव रिकॉर्ड सत्यापित नहीं हुआ है।',
+        },
+      SathiLanguageMode.english => switch (kind) {
+          'claimed' => 'According to the document saved on your phone, the claimed amount was $mainAmount.$related\n\nThis was extracted locally from OCR text; no live insurer record was checked.',
+          'approved' => 'According to the document saved on your phone, the approved amount is $mainAmount.$related\n\nThis was extracted locally from OCR text; no live insurer record was checked.',
+          _ => 'According to the document saved on your phone, the amount pending review is $mainAmount.$related\n\nThis was extracted locally from OCR text; no live insurer record was checked.',
+        },
+    };
+
+    final facts = <String>['${_amountLabel(kind, language)} $mainAmount'];
+    facts.addAll(additionalFacts);
+    return SathiAgentReply(
+      answer: answer,
+      intent: '${kind}_amount',
+      actionIndex: 1,
+      actionLabel: language == SathiLanguageMode.hindi ? 'क्लेम देखें' : 'Review claim',
+      mode: 'local_document_fact',
+      notice: 'ON DEVICE · Amounts extracted from saved OCR text. No question or document was sent online.',
+      evidenceUsed: facts,
+    );
+  }
+
+  String? _amountQuestionType(String question) {
+    final q = question.toLowerCase().replaceAll(RegExp(r'\s+'), ' ').trim();
+    final asksAmount = _hasAny(q, const [
+      'how much', 'kitne ka', 'kitna ka', 'kitna tha', 'kitni thi', 'kitna amount',
+      'amount claimed', 'claimed amount', 'claim amount', 'requested amount',
+      'amount requested', 'total claim', 'claim ki amount', 'claim ki rashi',
+      'kitne rupees', 'kitne rupay', 'kitne रुपये', 'कितने का', 'कितना था',
+      'कितनी राशि', 'क्लेम कितना', 'क्लेम की राशि', 'दावा की गई राशि',
+    ]) || (_hasAny(q, const ['kitna', 'kitne', 'kitni', 'कितना', 'कितने', 'कितनी']) &&
+        _hasAny(q, const ['claim', 'amount', 'approved', 'pending', 'mila', 'rashi', 'राशि', 'क्लेम', 'स्वीकृत', 'मंजूर']));
+    if (!asksAmount) return null;
+
+    if (_hasAny(q, const [
+      'approved', 'approve hua', 'approve amount', 'settled', 'sanctioned',
+      'kitna mila', 'kitni amount mili', 'मंजूर', 'स्वीकृत', 'मिला', 'पास हुआ',
+    ])) return 'approved';
+    if (_hasAny(q, const [
+      'pending', 'remaining', 'balance', 'baaki', 'baki', 'bachi hui',
+      'kitna pending', 'बाकी', 'लंबित', 'शेष राशि', 'रुका हुआ',
+    ])) return 'pending';
+    return 'claimed';
+  }
+
+  String? _extractLabeledAmount(String source, String kind) {
+    final text = source
+        .replaceAll(RegExp(r'[\r\n\t]+'), ' ')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+    final amount = r'(?:(?:\(?\s*(?:rs\.?|inr|₹)\s*\)?\s*)?)([0-9][0-9,]*(?:\.\d{1,2})?)';
+    final patterns = switch (kind) {
+      'claimed' => <RegExp>[
+          RegExp(r'\b(?:amount\s+claimed|claimed\s+amount|requested\s+amount|amount\s+requested|claim\s+amount|total\s+claim\s+amount|total\s+amount\s+claimed)\b\s*[:=\-]?\s*' + amount, caseSensitive: false),
+          RegExp(r'\bclaim\s+(?:for|of)\s*(?:rs\.?|inr|₹)\s*([0-9][0-9,]*(?:\.\d{1,2})?)', caseSensitive: false),
+        ],
+      'approved' => <RegExp>[
+          RegExp(r'\b(?:amount\s+approved|approved\s+amount|amount\s+sanctioned|sanctioned\s+amount|settled\s+amount|amount\s+settled)\b\s*[:=\-]?\s*' + amount, caseSensitive: false),
+          // Some OCR engines reorder the table cells as: "Amount Rs. 52,000 approved".
+          RegExp(r'\bamount\s+(?:(?:rs\.?|inr)\s*|₹\s*)?([0-9][0-9,]*(?:\.\d{1,2})?)\s+approved\b', caseSensitive: false),
+        ],
+      _ => <RegExp>[
+          RegExp(r'\b(?:amount\s+pending|pending\s+amount|remaining\s+amount|amount\s+remaining|balance\s+pending|pending\s+review)\b\s*[:=\-]?\s*' + amount, caseSensitive: false),
+          RegExp(r'\b(?:amount|balance)\s+(?:(?:rs\.?|inr)\s*|₹\s*)?([0-9][0-9,]*(?:\.\d{1,2})?)\s+(?:pending|remaining)\b', caseSensitive: false),
+        ],
+    };
+    for (final pattern in patterns) {
+      final match = pattern.firstMatch(text);
+      if (match != null) return match.group(1)?.replaceAll(',', '');
+    }
+    return null;
+  }
+
+  String _formatLocalMoney(String raw) {
+    final clean = raw.replaceAll(',', '');
+    final pieces = clean.split('.');
+    final whole = int.tryParse(pieces.first);
+    if (whole == null) return '₹$raw';
+    final digits = whole.toString();
+    String grouped;
+    if (digits.length <= 3) {
+      grouped = digits;
+    } else {
+      final lastThree = digits.substring(digits.length - 3);
+      var leading = digits.substring(0, digits.length - 3);
+      final groups = <String>[];
+      while (leading.length > 2) {
+        groups.insert(0, leading.substring(leading.length - 2));
+        leading = leading.substring(0, leading.length - 2);
+      }
+      if (leading.isNotEmpty) groups.insert(0, leading);
+      grouped = '${groups.join(',')},$lastThree';
+    }
+    return pieces.length > 1 ? '₹$grouped.${pieces[1]}' : '₹$grouped';
+  }
+
+  String _amountLabel(String kind, SathiLanguageMode language) => switch (language) {
+        SathiLanguageMode.hinglish => switch (kind) {
+            'claimed' => 'Claim amount:',
+            'approved' => 'Approved amount:',
+            _ => 'Pending amount:',
+          },
+        SathiLanguageMode.hindi => switch (kind) {
+            'claimed' => 'दावा की गई राशि:',
+            'approved' => 'स्वीकृत राशि:',
+            _ => 'लंबित राशि:',
+          },
+        SathiLanguageMode.english => switch (kind) {
+            'claimed' => 'Claimed amount:',
+            'approved' => 'Approved amount:',
+            _ => 'Amount pending review:',
+          },
+      };
 
   List<_LocalExcerpt> _findRelevantExcerpts(String question, List<_LocalDocument> docs) {
     if (docs.isEmpty) return const [];

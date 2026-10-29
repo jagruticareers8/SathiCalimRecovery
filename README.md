@@ -1,6 +1,6 @@
 # Sathi — Local-first health-insurance claim companion
 
-Sathi is a Flutter MVP for one focused journey: help a person organise a health-insurance decision letter, understand text they supplied, prepare an editable reconsideration draft, and keep a private record of their own next steps.
+Sathi is a Flutter hackathon MVP for one focused journey: help a person organise a health-insurance decision letter, understand text they supplied, prepare an editable reconsideration draft, and keep a private record of their own next steps.
 
 ## Privacy design
 
@@ -131,7 +131,7 @@ The Android debug manifest enables cleartext HTTP only for local development. Us
 ## 3. Use Sathi
 
 1. Open **Documents** and attach a synthetic/test decision-letter image or another document.
-2. Select **Read text on device** for supported image formats. Review the extracted text; do not use real medical documents in this  build.
+2. Select **Read text on device** for supported image formats. Review the extracted text; do not use real medical documents in this hackathon build.
 3. Open **Home → Sathi** and use **Private files** mode to search your saved local text or the offline FAQ. Personal questions do not go to the cloud.
 4. Choose **General information** only for a generic question. If local search/FAQ cannot answer it and online lookup is enabled, review the exact-question confirmation before sending anything.
 5. Review any draft in the **Draft** tab. Copy it and submit it yourself through the insurer's official channel if appropriate.
@@ -156,7 +156,12 @@ Backend tests exercise intent classification and privacy filters without intenti
 ## Security boundary
 
 - The backend's `SATHI_ALLOW_UNAUTHENTICATED_DEV=true` switch is for short-lived local testing with synthetic data only. Never expose this backend publicly in that mode.
-- PII masking is best effort, not comprehensive data-loss prevention. The safest rule is not to upload real health/identity/claim data during the dem.
+- PII masking is best effort, not comprehensive data-loss prevention. The safest rule is not to upload real health/identity/claim data during the hackathon.
 - `flutter_secure_storage` protects the vault key; AES-GCM protects app-owned vault files at rest. This is not a substitute for a production threat model, secure backups, device lock, access control, retention/deletion policy, or security review.
 - The operating system's own speech-recognition service may use network services according to device settings even when Sathi does not upload an audio file itself. The optional cloud transcription mode definitely sends audio off-device and is separately consented.
 - No insurer lookup or claim submission is simulated. Sathi explains only user-provided text and general insurance concepts, and must not promise that a claim will be recovered.
+
+
+## Local document fact answers (amounts)
+
+The local-first assistant now checks labelled amounts in the full saved OCR text before returning generic snippets. Example questions include “Mera claim kitne ka tha?”, “Kitna amount approve hua?”, and “Kitna pending hai?”. The response is generated on-device from stored OCR text and labels the answer as local document evidence—not a live insurer record. A new regression test is in `test/local_first_document_amount_test.dart`.
