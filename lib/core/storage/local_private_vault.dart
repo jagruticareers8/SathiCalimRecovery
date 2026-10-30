@@ -9,9 +9,9 @@ import 'package:path_provider/path_provider.dart';
 /// and encrypted copies of documents selected into the app.
 ///
 /// The AES-256-GCM key is held in platform secure storage (Keychain/Keystore).
-/// Source files in Photos/Downloads remain where the user originally stored
-/// them; Sathi creates a separately encrypted app-private copy when a readable
-/// file path is available. Nothing in this class makes network requests.
+/// Source files remain where the user stored them; Sathi creates a separately
+/// encrypted app-private copy from the selected file bytes. This class makes no
+/// network requests.
 class LocalPrivateVault {
   LocalPrivateVault({FlutterSecureStorage? secureStorage})
       : _secureStorage = secureStorage ?? const FlutterSecureStorage();
@@ -121,6 +121,22 @@ class LocalPrivateVault {
     });
     _writeTail = next;
     return next;
+  }
+
+  /// Encrypts picker-provided bytes into app-private storage.
+  /// Android/iOS document pickers may return content URIs or cloud-backed
+  /// files, so reading the bytes is more reliable than persisting a path.
+  Future<void> saveAttachmentBytes({
+    required String id,
+    required List<int> bytes,
+  }) async {
+    if (bytes.isEmpty) throw StateError('The selected file is empty.');
+    if (bytes.length > _maxAttachmentBytes) {
+      throw StateError('This prototype supports files up to 25 MB.');
+    }
+    final encrypted = await _encryptBytes(bytes);
+    final destination = await _attachmentFile(id);
+    await destination.writeAsBytes(encrypted, flush: true);
   }
 
   /// Encrypt a selected source file into app-private storage.

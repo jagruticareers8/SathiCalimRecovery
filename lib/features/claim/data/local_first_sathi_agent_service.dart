@@ -28,16 +28,16 @@ class LocalFirstSathiAgentService {
   bool get isConfigured => _cloudService.isConfigured;
 
   Future<String> transcribeHinglishAudio(
-      String filePath, {
-        required bool allowCloudVoice,
-        required bool allowCloudGeneralInformation,
-        required bool confirmedForGeneralUse,
-      }) => _cloudService.transcribeHinglishAudio(
-    filePath,
-    allowCloudVoice: allowCloudVoice,
-    allowCloudGeneralInformation: allowCloudGeneralInformation,
-    confirmedForGeneralUse: confirmedForGeneralUse,
-  );
+    String filePath, {
+    required bool allowCloudVoice,
+    required bool allowCloudGeneralInformation,
+    required bool confirmedForGeneralUse,
+  }) => _cloudService.transcribeHinglishAudio(
+        filePath,
+        allowCloudVoice: allowCloudVoice,
+        allowCloudGeneralInformation: allowCloudGeneralInformation,
+        confirmedForGeneralUse: confirmedForGeneralUse,
+      );
 
   Future<SathiAgentReply> ask({
     required String message,
@@ -85,16 +85,6 @@ class LocalFirstSathiAgentService {
     final factNotFound = factReply?.mode == 'local_document_fact_not_found';
     if (factReply != null && !factNotFound) return factReply;
 
-    // Monetary fields are exact facts, not questions for a generative model.
-    // If the OCR extractor cannot verify a labelled amount, return the honest
-    // not-found response instead of allowing RAG to guess or substitute the
-    // claimed amount for the approved amount. The amount parser includes
-    // explicit table-reflow and narrative fallbacks below.
-    final isStrictAmountFact = factReply != null &&
-        RegExp(r'^(claimed|approved|pending|deducted|sum_insured|premium|copay|deductible|bill_total|paid)_amount$')
-            .hasMatch(factReply.intent);
-    if (factNotFound && isStrictAmountFact) return factReply!;
-
     // 2. If the user has installed the optional on-device LLM + embedder,
     // run semantic RAG on all relevant saved documents and the local guide.
     // Both embeddings and generation run in-process; no HTTP is used here.
@@ -128,10 +118,10 @@ class LocalFirstSathiAgentService {
       return SathiAgentReply(
         answer: wantsDraft
             ? (language == SathiLanguageMode.hinglish
-            ? 'Maine aapke phone par saved evidence se ek editable reconsideration draft banaya hai. Bhejne se pehle facts verify karein. Kuch bhi insurer ko submit nahi hua hai.\n\n${ragAnswer.answer}'
-            : language == SathiLanguageMode.hindi
-            ? 'आपके फोन पर सेव साक्ष्य के आधार पर संपादन योग्य पुनर्विचार ड्राफ्ट बनाया है। भेजने से पहले तथ्य जाँचें। कुछ भी बीमा कंपनी को जमा नहीं किया गया है।\n\n${ragAnswer.answer}'
-            : 'I prepared an editable reconsideration draft from evidence saved on this device. Verify all facts before sending; nothing has been submitted to the insurer.\n\n${ragAnswer.answer}')
+                ? 'Maine aapke phone par saved evidence se ek editable reconsideration draft banaya hai. Bhejne se pehle facts verify karein. Kuch bhi insurer ko submit nahi hua hai.\n\n${ragAnswer.answer}'
+                : language == SathiLanguageMode.hindi
+                    ? 'आपके फोन पर सेव साक्ष्य के आधार पर संपादन योग्य पुनर्विचार ड्राफ्ट बनाया है। भेजने से पहले तथ्य जाँचें। कुछ भी बीमा कंपनी को जमा नहीं किया गया है।\n\n${ragAnswer.answer}'
+                    : 'I prepared an editable reconsideration draft from evidence saved on this device. Verify all facts before sending; nothing has been submitted to the insurer.\n\n${ragAnswer.answer}')
             : ragAnswer.answer,
         intent: intent,
         actionIndex: wantsDraft ? 4 : (intent == 'required_documents' || intent == 'document_review' ? 2 : 1),
@@ -220,9 +210,9 @@ class LocalFirstSathiAgentService {
   }
 
   List<_LocalDocument> _collectDocuments(
-      Map<String, dynamic> snapshot,
-      Map<String, dynamic>? currentContext,
-      ) {
+    Map<String, dynamic> snapshot,
+    Map<String, dynamic>? currentContext,
+  ) {
     final docs = <_LocalDocument>[];
     final seen = <String>{};
 
@@ -255,10 +245,10 @@ class LocalFirstSathiAgentService {
   /// Handles labelled factual fields (claim amount, approved amount, and amount
   /// pending) directly from local OCR text. It deliberately does not call Gemini.
   SathiAgentReply? _answerLocalDocumentFact(
-      String question,
-      List<_LocalDocument> docs,
-      SathiLanguageMode language,
-      ) {
+    String question,
+    List<_LocalDocument> docs,
+    SathiLanguageMode language,
+  ) {
     if (docs.isEmpty) return null;
 
     final allText = docs.map((doc) => '${doc.title}\n${doc.text}').join('\n\n');
@@ -277,9 +267,9 @@ class LocalFirstSathiAgentService {
     final amount = _extractLabeledAmount(allText, kind);
     if (amount == null) {
       final message = switch (language) {
-        SathiLanguageMode.hinglish => 'Mujhe saved document ke OCR text mein ${_amountLabel(kind, language)} ka exact amount nahi mila. Maine poora saved text locally check kiya aur kuch bhi online nahi bheja. Documents screen par “Read text on device” dobara chalayein, ya amount wali line ka clear photo upload karein.',
-        SathiLanguageMode.hindi => 'मुझे सेव किए गए दस्तावेज़ के OCR टेक्स्ट में ${_amountLabel(kind, language)} की सटीक राशि नहीं मिली। मैंने टेक्स्ट केवल स्थानीय रूप से जाँचा है; कुछ भी ऑनलाइन नहीं भेजा। Documents स्क्रीन पर “Read text on device” फिर चलाएँ या राशि वाली पंक्ति की स्पष्ट तस्वीर जोड़ें।',
-        SathiLanguageMode.english => 'I could not extract the exact ${_amountLabel(kind, language)} from the saved OCR text. I checked locally and did not send anything online. Run “Read text on device” again, or upload a clearer image of the amount line.',
+        SathiLanguageMode.hinglish => 'Aapke document mein ${_amountLabel(kind, language)} ki exact rakam saaf nahi mil paayi. Main andaza nahi lagaunga/lagaungi. Kripya amount wali line dikhne wala saaf document dobara add karein.',
+        SathiLanguageMode.hindi => 'आपके दस्तावेज़ में ${_amountLabel(kind, language)} की सही राशि साफ़ नहीं मिल पाई। मैं अनुमान नहीं लगाऊँगा/लगाऊँगी। कृपया राशि वाली पंक्ति साफ़ दिखने वाला दस्तावेज़ दोबारा जोड़ें।',
+        SathiLanguageMode.english => 'I could not clearly find the exact ${_amountLabel(kind, language)} in your document. I will not guess. Please add a clearer copy showing the amount line.',
       };
       return SathiAgentReply(
         answer: message,
@@ -287,7 +277,7 @@ class LocalFirstSathiAgentService {
         actionIndex: 2,
         actionLabel: language == SathiLanguageMode.hindi ? 'दस्तावेज़ खोलें' : 'Open documents',
         mode: 'local_document_fact_not_found',
-        notice: 'ON DEVICE · Amount was not readable in the saved OCR text. No cloud request was made.',
+        notice: 'ON DEVICE · Amount was not readable in the saved document. No cloud request was made.',
       );
     }
 
@@ -315,20 +305,20 @@ class LocalFirstSathiAgentService {
     final related = additionalFacts.isEmpty ? '' : '\n${additionalFacts.join('\n')}';
     final answer = switch (language) {
       SathiLanguageMode.hinglish => (switch (kind) {
-        'claimed' => 'Aapke phone par saved document ke mutabik, claim ki amount $mainAmount thi.$related',
-        'approved' => 'Aapke phone par saved document ke mutabik, approved amount $mainAmount hai.$related',
-        'pending' => 'Aapke phone par saved document ke mutabik, review ke liye pending amount $mainAmount hai.$related',
-        'deducted' => 'Saved document ke mutabik, deducted/disallowed amount $mainAmount hai.',
-        'sum_insured' => 'Saved policy text ke mutabik, sum insured/cover limit $mainAmount hai.',
-        'premium' => 'Saved policy text ke mutabik, premium amount $mainAmount hai.',
-        'copay' => 'Saved document mein co-pay amount $mainAmount diya gaya hai. Co-pay percentage/conditions alag se verify karein.',
-        'deductible' => 'Saved document mein deductible amount $mainAmount diya gaya hai. Exact application policy wording se verify karein.',
-        'bill_total' => 'Saved document ke mutabik, total bill amount $mainAmount hai.',
-        'paid' => 'Saved document ke mutabik, paid/settled amount $mainAmount hai.',
-        _ => 'Aapke phone par saved document ke mutabik, review ke liye pending amount $mainAmount hai.$related',
-      }) + '\n\nYeh jawab sirf saved OCR text se locally nikala gaya hai; live insurer record verify nahi hua.',
+          'claimed' => 'Aapke phone par saved document ke mutabik, claim ki amount $mainAmount thi.$related',
+          'approved' => 'Aapke phone par saved document ke mutabik, approved amount $mainAmount hai.$related',
+          'pending' => 'Aapke phone par saved document ke mutabik, review ke liye pending amount $mainAmount hai.$related',
+          'deducted' => 'Saved document ke mutabik, deducted/disallowed amount $mainAmount hai.',
+          'sum_insured' => 'Saved policy text ke mutabik, sum insured/cover limit $mainAmount hai.',
+          'premium' => 'Saved policy text ke mutabik, premium amount $mainAmount hai.',
+          'copay' => 'Saved document mein co-pay amount $mainAmount diya gaya hai. Co-pay percentage/conditions alag se verify karein.',
+          'deductible' => 'Saved document mein deductible amount $mainAmount diya gaya hai. Exact application policy wording se verify karein.',
+          'bill_total' => 'Saved document ke mutabik, total bill amount $mainAmount hai.',
+          'paid' => 'Saved document ke mutabik, paid/settled amount $mainAmount hai.',
+          _ => 'Aapke phone par saved document ke mutabik, review ke liye pending amount $mainAmount hai.$related',
+        }) + '\n\nYeh jawab sirf saved document se locally nikala gaya hai; live insurer record verify nahi hua.',
       SathiLanguageMode.hindi => '${_amountLabel(kind, language)} $mainAmount.$related\n\nयह जवाब केवल स्थानीय OCR टेक्स्ट पर आधारित है; बीमा कंपनी का लाइव रिकॉर्ड सत्यापित नहीं हुआ है।',
-      SathiLanguageMode.english => '${_amountLabel(kind, language)} $mainAmount.$related\n\nThis answer was extracted from locally saved OCR text; no live insurer record was checked.',
+      SathiLanguageMode.english => '${_amountLabel(kind, language)} $mainAmount.$related\n\nThis answer was extracted from locally saved document; no live insurer record was checked.',
     };
 
     final facts = <String>['${_amountLabel(kind, language)} $mainAmount'];
@@ -339,7 +329,7 @@ class LocalFirstSathiAgentService {
       actionIndex: 1,
       actionLabel: language == SathiLanguageMode.hindi ? 'क्लेम देखें' : 'Review claim',
       mode: 'local_document_fact',
-      notice: 'ON DEVICE · Amounts extracted from saved OCR text. No question or document was sent online.',
+      notice: 'ON DEVICE · Amounts extracted from saved document. No question or document was sent online.',
       evidenceUsed: facts,
     );
   }
@@ -396,48 +386,39 @@ class LocalFirstSathiAgentService {
     final amount = r'(?:(?:\(?\s*(?:rs\.?|inr|₹)\s*\)?\s*)?)([0-9][0-9,]*(?:\.\d{1,2})?)';
     final patterns = switch (kind) {
       'claimed' => <RegExp>[
-        RegExp(r'\b(?:amount\s+claimed|claimed\s+amount|requested\s+amount|amount\s+requested|claim\s+amount|total\s+claim\s+amount|total\s+amount\s+claimed)\b\s*[:=\-]?\s*' + amount, caseSensitive: false),
-        RegExp(r'\bclaim\s+(?:for|of)\s*(?:rs\.?|inr|₹)\s*([0-9][0-9,]*(?:\.\d{1,2})?)', caseSensitive: false),
-      ],
+          RegExp(r'\b(?:amount\s+claimed|claimed\s+amount|requested\s+amount|amount\s+requested|claim\s+amount|total\s+claim\s+amount|total\s+amount\s+claimed)\b\s*[:=\-]?\s*' + amount, caseSensitive: false),
+          RegExp(r'\bclaim\s+(?:for|of)\s*(?:rs\.?|inr|₹)\s*([0-9][0-9,]*(?:\.\d{1,2})?)', caseSensitive: false),
+        ],
       'approved' => <RegExp>[
-        // Standard label/value sequence, including OCR reading table cells
-        // as "Amount approved Rs. 52,000" or "Approved amount: Rs 52,000".
-        RegExp(r'\b(?:amount\s+approved|approved\s+amount|amount\s+sanctioned|sanctioned\s+amount|settled\s+amount|amount\s+settled)\b\s*[:=\-]?\s*' + amount, caseSensitive: false),
-        // Some OCR engines reorder a table row to "Amount Rs. 52,000 approved".
-        RegExp(r'\bamount\s+(?:(?:rs\.?|inr)\s*|₹\s*)?([0-9][0-9,]*(?:\.\d{1,2})?)\s+approved\b', caseSensitive: false),
-        // A table label can be separated from its value or lost in OCR. The
-        // explanatory sentence in this sample explicitly says
-        // "has approved Rs. 52,000"; use this only when a currency marker
-        // precedes the amount to avoid mistaking an approval date for money.
-        RegExp(r'\b(?:has\s+)?approved\s+(?:(?:an?\s+)?amount\s+(?:of\s+)?)?(?:rs\.?|inr|₹)\s*([0-9][0-9,]*(?:\.\d{1,2})?)', caseSensitive: false),
-        RegExp(r'\bapproved\s+(?:an?\s+)?amount\s+(?:of\s+)?(?:rs\.?|inr|₹)\s*([0-9][0-9,]*(?:\.\d{1,2})?)', caseSensitive: false),
-      ],
+          RegExp(r'\b(?:amount\s+approved|approved\s+amount|amount\s+sanctioned|sanctioned\s+amount|settled\s+amount|amount\s+settled)\b\s*[:=\-]?\s*' + amount, caseSensitive: false),
+          RegExp(r'\bamount\s+(?:(?:rs\.?|inr)\s*|₹\s*)?([0-9][0-9,]*(?:\.\d{1,2})?)\s+approved\b', caseSensitive: false),
+        ],
       'sum_insured' => <RegExp>[
-        RegExp(r'\b(?:sum\s+insured|sum\s+assured|coverage\s+limit|policy\s+limit|total\s+cover|base\s+cover)\b\s*[:=\-]?\s*' + amount, caseSensitive: false),
-      ],
+          RegExp(r'\b(?:sum\s+insured|sum\s+assured|coverage\s+limit|policy\s+limit|total\s+cover|base\s+cover)\b\s*[:=\-]?\s*' + amount, caseSensitive: false),
+        ],
       'premium' => <RegExp>[
-        RegExp(r'\b(?:premium\s+amount|annual\s+premium|policy\s+premium|premium)\b\s*[:=\-]?\s*' + amount, caseSensitive: false),
-      ],
+          RegExp(r'\b(?:premium\s+amount|annual\s+premium|policy\s+premium|premium)\b\s*[:=\-]?\s*' + amount, caseSensitive: false),
+        ],
       'copay' => <RegExp>[
-        RegExp(r'\b(?:co[- ]?pay(?:ment)?\s+amount|co[- ]?pay|copay)\b\s*[:=\-]?\s*' + amount, caseSensitive: false),
-      ],
+          RegExp(r'\b(?:co[- ]?pay(?:ment)?\s+amount|co[- ]?pay|copay)\b\s*[:=\-]?\s*' + amount, caseSensitive: false),
+        ],
       'deductible' => <RegExp>[
-        RegExp(r'\b(?:deductible\s+amount|deductible)\b\s*[:=\-]?\s*' + amount, caseSensitive: false),
-      ],
+          RegExp(r'\b(?:deductible\s+amount|deductible)\b\s*[:=\-]?\s*' + amount, caseSensitive: false),
+        ],
       'bill_total' => <RegExp>[
-        RegExp(r'\b(?:total\s+hospital\s+bill|total\s+bill|bill\s+amount|hospital\s+bill\s+amount|total\s+charges|invoice\s+amount)\b\s*[:=\-]?\s*' + amount, caseSensitive: false),
-      ],
+          RegExp(r'\b(?:total\s+hospital\s+bill|total\s+bill|bill\s+amount|hospital\s+bill\s+amount|total\s+charges|invoice\s+amount)\b\s*[:=\-]?\s*' + amount, caseSensitive: false),
+        ],
       'paid' => <RegExp>[
-        RegExp(r'\b(?:amount\s+paid|paid\s+amount|paid\s+by\s+insurer|insurer\s+paid|payment\s+amount|settled\s+amount)\b\s*[:=\-]?\s*' + amount, caseSensitive: false),
-      ],
+          RegExp(r'\b(?:amount\s+paid|paid\s+amount|paid\s+by\s+insurer|insurer\s+paid|payment\s+amount|settled\s+amount)\b\s*[:=\-]?\s*' + amount, caseSensitive: false),
+        ],
       'deducted' => <RegExp>[
-        RegExp(r'\b(?:amount\s+deducted|deduction\s+amount|total\s+deduction|deducted\s+amount|disallowed\s+amount|non[- ]payable\s+amount|shortfall\s+amount)\b\s*[:=\-]?\s*' + amount, caseSensitive: false),
-        RegExp(r'\b(?:deducted|disallowed|non[- ]payable)\s+(?:amount\s+)?(?:(?:rs\.?|inr)\s*|₹\s*)?([0-9][0-9,]*(?:\.\d{1,2})?)', caseSensitive: false),
-      ],
+          RegExp(r'\b(?:amount\s+deducted|deduction\s+amount|total\s+deduction|deducted\s+amount|disallowed\s+amount|non[- ]payable\s+amount|shortfall\s+amount)\b\s*[:=\-]?\s*' + amount, caseSensitive: false),
+          RegExp(r'\b(?:deducted|disallowed|non[- ]payable)\s+(?:amount\s+)?(?:(?:rs\.?|inr)\s*|₹\s*)?([0-9][0-9,]*(?:\.\d{1,2})?)', caseSensitive: false),
+        ],
       _ => <RegExp>[
-        RegExp(r'\b(?:amount\s+pending|pending\s+amount|remaining\s+amount|amount\s+remaining|balance\s+pending|pending\s+review)\b\s*[:=\-]?\s*' + amount, caseSensitive: false),
-        RegExp(r'\b(?:amount|balance)\s+(?:(?:rs\.?|inr)\s*|₹\s*)?([0-9][0-9,]*(?:\.\d{1,2})?)\s+(?:pending|remaining)\b', caseSensitive: false),
-      ],
+          RegExp(r'\b(?:amount\s+pending|pending\s+amount|remaining\s+amount|amount\s+remaining|balance\s+pending|pending\s+review)\b\s*[:=\-]?\s*' + amount, caseSensitive: false),
+          RegExp(r'\b(?:amount|balance)\s+(?:(?:rs\.?|inr)\s*|₹\s*)?([0-9][0-9,]*(?:\.\d{1,2})?)\s+(?:pending|remaining)\b', caseSensitive: false),
+        ],
     };
     for (final pattern in patterns) {
       final match = pattern.firstMatch(text);
@@ -470,46 +451,46 @@ class LocalFirstSathiAgentService {
   }
 
   String _amountLabel(String kind, SathiLanguageMode language) => switch (language) {
-    SathiLanguageMode.hinglish => switch (kind) {
-      'claimed' => 'Claim amount:',
-      'approved' => 'Approved amount:',
-      'pending' => 'Amount pending review:',
-      'deducted' => 'Amount deducted/disallowed:',
-      'sum_insured' => 'Sum insured / cover limit:',
-      'premium' => 'Premium amount:',
-      'copay' => 'Co-pay amount:',
-      'deductible' => 'Deductible amount:',
-      'bill_total' => 'Total bill amount:',
-      'paid' => 'Amount paid/settled:',
-      _ => 'Amount:',
-    },
-    SathiLanguageMode.hindi => switch (kind) {
-      'claimed' => 'दावा की गई राशि:',
-      'approved' => 'स्वीकृत राशि:',
-      'pending' => 'लंबित राशि:',
-      'deducted' => 'काटी/अस्वीकृत राशि:',
-      'sum_insured' => 'बीमा राशि / कवर सीमा:',
-      'premium' => 'प्रीमियम राशि:',
-      'copay' => 'को-पे राशि:',
-      'deductible' => 'डिडक्टिबल राशि:',
-      'bill_total' => 'कुल बिल राशि:',
-      'paid' => 'भुगतान/सेटल राशि:',
-      _ => 'राशि:',
-    },
-    SathiLanguageMode.english => switch (kind) {
-      'claimed' => 'Claimed amount:',
-      'approved' => 'Approved amount:',
-      'pending' => 'Amount pending review:',
-      'deducted' => 'Amount deducted/disallowed:',
-      'sum_insured' => 'Sum insured / coverage limit:',
-      'premium' => 'Premium amount:',
-      'copay' => 'Co-pay amount:',
-      'deductible' => 'Deductible amount:',
-      'bill_total' => 'Total bill amount:',
-      'paid' => 'Amount paid/settled:',
-      _ => 'Amount:',
-    },
-  };
+        SathiLanguageMode.hinglish => switch (kind) {
+            'claimed' => 'Claim amount:',
+            'approved' => 'Approved amount:',
+            'pending' => 'Amount pending review:',
+            'deducted' => 'Amount deducted/disallowed:',
+            'sum_insured' => 'Sum insured / cover limit:',
+            'premium' => 'Premium amount:',
+            'copay' => 'Co-pay amount:',
+            'deductible' => 'Deductible amount:',
+            'bill_total' => 'Total bill amount:',
+            'paid' => 'Amount paid/settled:',
+            _ => 'Amount:',
+          },
+        SathiLanguageMode.hindi => switch (kind) {
+            'claimed' => 'दावा की गई राशि:',
+            'approved' => 'स्वीकृत राशि:',
+            'pending' => 'लंबित राशि:',
+            'deducted' => 'काटी/अस्वीकृत राशि:',
+            'sum_insured' => 'बीमा राशि / कवर सीमा:',
+            'premium' => 'प्रीमियम राशि:',
+            'copay' => 'को-पे राशि:',
+            'deductible' => 'डिडक्टिबल राशि:',
+            'bill_total' => 'कुल बिल राशि:',
+            'paid' => 'भुगतान/सेटल राशि:',
+            _ => 'राशि:',
+          },
+        SathiLanguageMode.english => switch (kind) {
+            'claimed' => 'Claimed amount:',
+            'approved' => 'Approved amount:',
+            'pending' => 'Amount pending review:',
+            'deducted' => 'Amount deducted/disallowed:',
+            'sum_insured' => 'Sum insured / coverage limit:',
+            'premium' => 'Premium amount:',
+            'copay' => 'Co-pay amount:',
+            'deductible' => 'Deductible amount:',
+            'bill_total' => 'Total bill amount:',
+            'paid' => 'Amount paid/settled:',
+            _ => 'Amount:',
+          },
+      };
 
   List<_LocalExcerpt> _findRelevantExcerpts(String question, List<_LocalDocument> docs) {
     if (docs.isEmpty) return const [];
@@ -670,9 +651,10 @@ class LocalFirstSathiAgentService {
   bool _asksForRequiredDocuments(String question) {
     final q = question.toLowerCase().replaceAll(RegExp(r'\s+'), ' ').trim();
 
-    // Deadline questions can mention documents being submitted. Identify the
-    // requested information type first so a final-date question is not routed
-    // to the required-documents checklist just because it says "submit".
+    // Deadline questions often mention the documents being submitted. Resolve
+    // the requested information type first so wording such as "What is the
+    // final date to submit supporting documents?" is not treated as a request
+    // for a checklist merely because it contains both "submit" and "documents".
     final asksDeadline = _hasAny(q, const [
       'deadline', 'last date', 'final date', 'due date', 'submission date',
       'expiry date', 'expiration date', 'by what date', 'date to submit',
@@ -695,7 +677,7 @@ class LocalFirstSathiAgentService {
     ]);
     final actionAndDocument =
         _hasAny(q, const ['upload', 'attach', 'submit', 'provide', 'send', 'jama', 'अपलोड', 'जमा', 'भेज']) &&
-            _hasAny(q, const ['paper', 'papers', 'document', 'docs', 'file', 'files', 'kagaz', 'कागज', 'काग़ज़', 'दस्तावेज', 'फाइल', 'बिल', 'रिपोर्ट']);
+        _hasAny(q, const ['paper', 'papers', 'document', 'docs', 'file', 'files', 'kagaz', 'कागज', 'काग़ज़', 'दस्तावेज', 'फाइल', 'बिल', 'रिपोर्ट']);
     return directChecklistRequest || actionAndDocument;
   }
 
@@ -827,113 +809,12 @@ class LocalFirstSathiAgentService {
     return null;
   }
 
-  /// Extracts a real status value from the full OCR corpus. Prefer specific
-  /// values over labels, disclaimers, and overlapping table-row chunks.
-  String? _extractClaimStatus(List<_LocalDocument> docs) {
-    // Highly specific partial-approval wording is searched across all text
-    // first because OCR engines sometimes reorder table cells.
-    for (final doc in docs.reversed) {
-      final text = doc.text.replaceAll(RegExp(r'\s+'), ' ').trim();
-      final match = RegExp(
-        r'\b(?:partially|partly)\s+approved\b(?:\s*[-–—:|]\s*(?:more\s+information\s+needed|additional\s+information\s+needed|pending\s+review))?',
-        caseSensitive: false,
-      ).firstMatch(text);
-      if (match != null) {
-        final value = match.group(0)!.toLowerCase();
-        if (value.contains('more information needed') || value.contains('additional information needed')) {
-          return 'Partially approved — more information needed';
-        }
-        if (value.contains('pending review')) return 'Partially approved — pending review';
-        return 'Partially approved';
-      }
-    }
-
-    // For other common statuses, require the value to follow a status label;
-    // a stray "approved amount" line must not be presented as claim status.
-    final statusLabels = RegExp(
-      r'\b(?:current\s+claim\s+status|claim\s+status|current\s+status|status)\b\s*[:=|–—-]?\s*',
-      caseSensitive: false,
-    );
-    final statusValues = <RegExp>[
-      RegExp(r'\b(?:awaiting\s+(?:additional\s+)?information|awaiting\s+documents|more\s+information\s+needed|additional\s+information\s+needed)\b', caseSensitive: false),
-      RegExp(r'\b(?:under\s+review|in\s+review|under\s+process|in\s+process|processing)\b', caseSensitive: false),
-      RegExp(r'\b(?:rejected|denied|declined|settled|pending|approved|paid|closed)\b', caseSensitive: false),
-    ];
-    for (final doc in docs.reversed) {
-      final text = doc.text.replaceAll(RegExp(r'\s+'), ' ').trim();
-      final matches = statusLabels.allMatches(text).toList().reversed;
-      for (final label in matches) {
-        final start = label.end;
-        final end = (start + 120).clamp(0, text.length).toInt();
-        if (start >= end) continue;
-        final segment = text.substring(start, end);
-        // Stop at the next likely table field/section label.
-        final bounded = segment.split(RegExp(
-          r'\b(?:amount\s+claimed|amount\s+approved|amount\s+pending|reason\s+for|policy\s+reference|claim\s+reference|hospital|admission\s+dates|additional\s+information\s+deadline)\b',
-          caseSensitive: false,
-        )).first;
-        for (final pattern in statusValues) {
-          final value = pattern.firstMatch(bounded)?.group(0);
-          if (value != null) {
-            return value[0].toUpperCase() + value.substring(1).toLowerCase();
-          }
-        }
-      }
-    }
-    return null;
-  }
-
-  bool _textContainsStatusValue(String text, String status) {
-    if (status.startsWith('Partially approved')) {
-      return RegExp(r'\b(?:partially|partly)\s+approved\b', caseSensitive: false).hasMatch(text);
-    }
-    return text.toLowerCase().contains(status.toLowerCase());
-  }
-
   SathiAgentReply? _answerLocalLabeledFact(
-      String question,
-      List<_LocalDocument> docs,
-      SathiLanguageMode language,
-      String kind,
-      ) {
-    // Status is a field/value question, so inspect the full OCR text instead
-    // of ranking overlapping chunks. On table-style PNGs OCR may put the
-    // synthetic header and "Current status" in the same chunk, causing the
-    // header to outrank the actual value in a later chunk.
-    if (kind == 'status') {
-      final status = _extractClaimStatus(docs);
-      if (status == null) return _localFactNotFound('status', language);
-
-      final isSynthetic = docs.any((doc) => RegExp(
-        r'\bsynthetic\b|not a real insurer letter|sathi ocr \+ local q&a test',
-        caseSensitive: false,
-      ).hasMatch(doc.text));
-      final answer = switch (language) {
-        SathiLanguageMode.hinglish => isSynthetic
-            ? 'Aapke uploaded test document mein claim status "$status" likha hai. Yeh image synthetic test document ke roop mein marked hai, isliye yeh sirf OCR test result hai—real claim ka status nahi. Sathi insurer/TPA ka live status check nahi karta.'
-            : 'Aapke phone par saved document ke mutabik claim status "$status" hai. Yeh saved OCR text se nikla hai; live insurer/TPA status verify nahi hua.',
-        SathiLanguageMode.hindi => isSynthetic
-            ? 'आपके अपलोड किए गए टेस्ट दस्तावेज़ में क्लेम की स्थिति "$status" लिखी है। यह इमेज synthetic test document के रूप में चिह्नित है, इसलिए यह केवल OCR टेस्ट परिणाम है—वास्तविक क्लेम की स्थिति नहीं। Sathi बीमा कंपनी/TPA का लाइव स्टेटस नहीं देखता।'
-            : 'फोन पर सेव दस्तावेज़ के अनुसार क्लेम की स्थिति "$status" है। यह स्थानीय OCR टेक्स्ट से निकाला गया है; बीमा कंपनी/TPA का लाइव स्टेटस सत्यापित नहीं हुआ।',
-        SathiLanguageMode.english => isSynthetic
-            ? 'The uploaded test document states the claim status is "$status". This image is marked as a synthetic test document, so this is only an OCR test result—not a real claim status. Sathi does not check live insurer/TPA status.'
-            : 'The document saved on this phone states the claim status is "$status". This was extracted from local OCR text; live insurer/TPA status was not verified.',
-      };
-      final sourceTitle = docs.lastWhere(
-            (doc) => _textContainsStatusValue(doc.text, status),
-        orElse: () => docs.last,
-      ).title;
-      return SathiAgentReply(
-        answer: answer,
-        intent: 'status',
-        actionIndex: 1,
-        actionLabel: language == SathiLanguageMode.hindi ? 'क्लेम देखें' : 'Review local status',
-        mode: 'local_document_fact',
-        notice: 'ON DEVICE · Status extracted from saved OCR text. No cloud request or live insurer check was made.',
-        evidenceUsed: ['$sourceTitle: Current status — $status'],
-      );
-    }
-
+    String question,
+    List<_LocalDocument> docs,
+    SathiLanguageMode language,
+    String kind,
+  ) {
     final chunks = docs.expand((doc) => _documentChunks(doc.text).map((chunk) => _LocalExcerpt(title: doc.title, text: chunk, score: 0))).toList();
     final patterns = <String, List<String>>{
       'reason': ['reason', 'because', 'partially approved', 'partial approval', 'rejected', 'rejection', 'denied', 'denial', 'not payable', 'disallowed', 'excluded', 'missing', 'required', 'insufficient', 'additional information', 'shortfall', 'deducted', 'कारण', 'अस्वीकृत'],
@@ -1011,51 +892,51 @@ class LocalFirstSathiAgentService {
       actionIndex: kind == 'prepare_reconsideration' ? 4 : (kind == 'required_documents' ? 2 : (kind == 'summary' || kind == 'reason' || kind == 'status' ? 1 : 2)),
       actionLabel: kind == 'prepare_reconsideration' ? 'Review local draft' : (kind == 'required_documents' ? 'Open documents' : 'Review local evidence'),
       mode: evidence.isEmpty ? 'local_fact_not_found' : 'local_document_fact',
-      notice: 'ON DEVICE · Answer is based on locally saved OCR text. No question or document was sent online.',
+      notice: 'ON DEVICE · Answer is based on locally saved document. No question or document was sent online.',
       evidenceUsed: evidence.map((e) => '${e.title}: ${e.text}').toList(),
     );
   }
 
   SathiAgentReply _localFactNotFound(
-      String kind,
-      SathiLanguageMode language,
-      ) {
+    String kind,
+    SathiLanguageMode language,
+  ) {
     final subject = switch (kind) {
       'reason' => switch (language) {
-        SathiLanguageMode.hinglish => 'claim ke rejection/partial approval ka exact reason',
-        SathiLanguageMode.hindi => 'क्लेम अस्वीकार/आंशिक स्वीकृति का सटीक कारण',
-        SathiLanguageMode.english => 'the exact claim rejection/partial-approval reason',
-      },
+          SathiLanguageMode.hinglish => 'claim ke rejection/partial approval ka exact reason',
+          SathiLanguageMode.hindi => 'क्लेम अस्वीकार/आंशिक स्वीकृति का सटीक कारण',
+          SathiLanguageMode.english => 'the exact claim rejection/partial-approval reason',
+        },
       'coverage' => switch (language) {
-        SathiLanguageMode.hinglish => 'policy ka coverage clause',
-        SathiLanguageMode.hindi => 'पॉलिसी का कवरेज क्लॉज़',
-        SathiLanguageMode.english => 'the policy coverage clause',
-      },
+          SathiLanguageMode.hinglish => 'policy ka coverage clause',
+          SathiLanguageMode.hindi => 'पॉलिसी का कवरेज क्लॉज़',
+          SathiLanguageMode.english => 'the policy coverage clause',
+        },
       'deadline' => switch (language) {
-        SathiLanguageMode.hinglish => 'submit/appeal ki deadline',
-        SathiLanguageMode.hindi => 'जमा करने/अपील की समय-सीमा',
-        SathiLanguageMode.english => 'the submission/appeal deadline',
-      },
+          SathiLanguageMode.hinglish => 'submit/appeal ki deadline',
+          SathiLanguageMode.hindi => 'जमा करने/अपील की समय-सीमा',
+          SathiLanguageMode.english => 'the submission/appeal deadline',
+        },
       'required_documents' => switch (language) {
-        SathiLanguageMode.hinglish => 'required ya missing documents ki list',
-        SathiLanguageMode.hindi => 'ज़रूरी या बाकी दस्तावेज़ों की सूची',
-        SathiLanguageMode.english => 'the required or missing documents list',
-      },
+          SathiLanguageMode.hinglish => 'required ya missing documents ki list',
+          SathiLanguageMode.hindi => 'ज़रूरी या बाकी दस्तावेज़ों की सूची',
+          SathiLanguageMode.english => 'the required or missing documents list',
+        },
       'status' => switch (language) {
-        SathiLanguageMode.hinglish => 'claim status/decision',
-        SathiLanguageMode.hindi => 'क्लेम की स्थिति/निर्णय',
-        SathiLanguageMode.english => 'the claim status/decision',
-      },
+          SathiLanguageMode.hinglish => 'claim status/decision',
+          SathiLanguageMode.hindi => 'क्लेम की स्थिति/निर्णय',
+          SathiLanguageMode.english => 'the claim status/decision',
+        },
       _ => switch (language) {
-        SathiLanguageMode.hinglish => 'is sawal ka exact jawab',
-        SathiLanguageMode.hindi => 'इस सवाल का सटीक जवाब',
-        SathiLanguageMode.english => 'the exact answer to this question',
-      },
+          SathiLanguageMode.hinglish => 'is sawal ka exact jawab',
+          SathiLanguageMode.hindi => 'इस सवाल का सटीक जवाब',
+          SathiLanguageMode.english => 'the exact answer to this question',
+        },
     };
     final answer = switch (language) {
-      SathiLanguageMode.hinglish => 'Mujhe phone par saved OCR text mein $subject nahi mila. Isliye main guess nahi karunga/karungi. Document par “Read text on device” dobara chalayein ya relevant paragraph ko check/correct karein. Aapka private sawal aur document online nahi bheja gaya.',
-      SathiLanguageMode.hindi => 'मुझे फोन पर सेव OCR टेक्स्ट में $subject नहीं मिला। इसलिए मैं अनुमान नहीं लगाऊँगा/लगाऊँगी। दस्तावेज़ पर “Read text on device” दोबारा चलाएँ या संबंधित अनुच्छेद जाँचें/सुधारें। आपका निजी सवाल और दस्तावेज़ ऑनलाइन नहीं भेजा गया।',
-      SathiLanguageMode.english => 'I could not find $subject in the OCR text saved on this phone, so I will not guess. Run “Read text on device” again or review/correct the relevant paragraph. Your private question and document were not sent online.',
+      SathiLanguageMode.hinglish => 'Mujhe aapke document mein $subject nahi mila, isliye main andaza nahi lagaunga/lagaungi. Kripya us jaankari wala saaf document add karein.',
+      SathiLanguageMode.hindi => 'मुझे आपके दस्तावेज़ में $subject नहीं मिला, इसलिए मैं अनुमान नहीं लगाऊँगा/लगाऊँगी। कृपया वह जानकारी साफ़ दिखाने वाला दस्तावेज़ जोड़ें।',
+      SathiLanguageMode.english => 'I could not find $subject in your document, so I will not guess. Please add a clearer copy showing that information.',
     };
     return SathiAgentReply(
       answer: answer,
@@ -1063,7 +944,7 @@ class LocalFirstSathiAgentService {
       actionIndex: 2,
       actionLabel: language == SathiLanguageMode.hindi ? 'दस्तावेज़ खोलें' : 'Open documents',
       mode: 'local_fact_not_found',
-      notice: 'ON DEVICE · Requested field was not found in saved OCR text. No cloud request was made.',
+      notice: 'ON DEVICE · Requested field was not found in saved document. No cloud request was made.',
       evidenceUsed: const [],
     );
   }
@@ -1072,22 +953,22 @@ class LocalFirstSathiAgentService {
     final snippets = evidence.map((e) => '• ${e.text}').join('\n');
     return switch (language) {
       SathiLanguageMode.hinglish => switch (kind) {
-        'reason' => 'Aapke saved document mein rejection/partial approval se related yeh wording mili:\n$snippets\n\nYeh explanation sirf document ke text par based hai. Insurer ka live record verify nahi hua.',
-        'status' => 'Saved document mein status se related yeh wording hai:\n$snippets\n\nYeh document ka status text hai, live insurer status nahi.',
-        'required_documents' => 'Saved document mein documents ya next steps ke baare mein yeh likha hai:\n$snippets\n\nExact checklist insurer ki official instructions se verify karein.',
-        'prepare_reconsideration' => 'Maine saved document ki relevant lines ke basis par ek editable reconsideration draft taiyaar kiya hai. Yeh sirf draft hai—maine insurer ko kuch submit nahi kiya. Relevant lines:\n$snippets',
-        'deadline' => 'Saved document mein deadline/appeal period se related yeh wording mili:\n$snippets\n\nAgar exact calendar date clear nahi hai, insurer se official deadline confirm karein.',
-        'policy_number' => 'Saved document mein policy reference se related yeh text mila:\n$snippets',
-        'claim_id' => 'Saved document mein claim/reference ID se related yeh text mila:\n$snippets',
-        'insurer' => 'Saved document mein insurer/company se related yeh text mila:\n$snippets',
-        'hospital' => 'Saved document mein hospital se related yeh text mila:\n$snippets',
-        'date' => 'Saved document mein date se related yeh text mila:\n$snippets',
-        'treatment' => 'Saved document mein treatment/diagnosis se related yeh text mila:\n$snippets',
-        'coverage' => 'Saved document mein coverage/policy terms se related yeh text mila:\n$snippets\n\nCoverage ka final interpretation policy wording aur insurer se verify karein.',
-        'contact' => 'Saved document mein contact details se related yeh text mila:\n$snippets\n\nNumber/email ko use karne se pehle document se verify karein.',
-        'next_steps' => 'Aapke saved document ke mutabik, agle steps se related yeh wording mili:\n$snippets\n\nSubmission aur deadline official insurer channel se verify karein.',
-        _ => 'Aapke saved document ka short summary:\n$snippets\n\nYeh summary sirf locally saved text par based hai.',
-      },
+          'reason' => 'Aapke saved document mein rejection/partial approval se related yeh wording mili:\n$snippets\n\nYeh explanation sirf document ke text par based hai. Insurer ka live record verify nahi hua.',
+          'status' => 'Saved document mein status se related yeh wording hai:\n$snippets\n\nYeh document ka status text hai, live insurer status nahi.',
+          'required_documents' => 'Saved document mein documents ya next steps ke baare mein yeh likha hai:\n$snippets\n\nExact checklist insurer ki official instructions se verify karein.',
+          'prepare_reconsideration' => 'Maine saved document ki relevant lines ke basis par ek editable reconsideration draft taiyaar kiya hai. Yeh sirf draft hai—maine insurer ko kuch submit nahi kiya. Relevant lines:\n$snippets',
+          'deadline' => 'Saved document mein deadline/appeal period se related yeh wording mili:\n$snippets\n\nAgar exact calendar date clear nahi hai, insurer se official deadline confirm karein.',
+          'policy_number' => 'Saved document mein policy reference se related yeh text mila:\n$snippets',
+          'claim_id' => 'Saved document mein claim/reference ID se related yeh text mila:\n$snippets',
+          'insurer' => 'Saved document mein insurer/company se related yeh text mila:\n$snippets',
+          'hospital' => 'Saved document mein hospital se related yeh text mila:\n$snippets',
+          'date' => 'Saved document mein date se related yeh text mila:\n$snippets',
+          'treatment' => 'Saved document mein treatment/diagnosis se related yeh text mila:\n$snippets',
+          'coverage' => 'Saved document mein coverage/policy terms se related yeh text mila:\n$snippets\n\nCoverage ka final interpretation policy wording aur insurer se verify karein.',
+          'contact' => 'Saved document mein contact details se related yeh text mila:\n$snippets\n\nNumber/email ko use karne se pehle document se verify karein.',
+          'next_steps' => 'Aapke saved document ke mutabik, agle steps se related yeh wording mili:\n$snippets\n\nSubmission aur deadline official insurer channel se verify karein.',
+          _ => 'Aapke saved document ka short summary:\n$snippets\n\nYeh summary sirf locally saved text par based hai.',
+        },
       SathiLanguageMode.hindi => kind == 'prepare_reconsideration'
           ? 'सेव दस्तावेज़ की संबंधित पंक्तियों के आधार पर एक संपादन योग्य पुनर्विचार ड्राफ्ट बनाया है। यह केवल ड्राफ्ट है; बीमा कंपनी को कुछ भी जमा नहीं किया गया।\n$snippets'
           : 'आपके फोन पर सेव दस्तावेज़ में यह संबंधित टेक्स्ट मिला:\n$snippets\n\nयह उत्तर केवल स्थानीय OCR टेक्स्ट पर आधारित है; बीमा कंपनी का लाइव रिकॉर्ड सत्यापित नहीं हुआ।',
@@ -1098,11 +979,11 @@ class LocalFirstSathiAgentService {
   }
 
   SathiAgentReply _documentAnswer(
-      String question,
-      List<_LocalExcerpt> excerpts,
-      SathiLanguageMode language,
-      String intent,
-      ) {
+    String question,
+    List<_LocalExcerpt> excerpts,
+    SathiLanguageMode language,
+    String intent,
+  ) {
     final evidence = excerpts.map((e) => '${e.title}: “${e.text}”').toList();
     final snippets = excerpts.take(3).map((e) => '• ${e.text}').join('\n');
     final answer = switch (language) {
@@ -1308,13 +1189,13 @@ Regards,
     return SathiAgentReply(
       answer: switch (language) {
         SathiLanguageMode.hinglish => sensitive
-            ? 'Mujhe is private sawal ka jawab aapke phone par saved text mein nahi mila. Privacy ke liye maine aapka sawal, document ya OCR text online nahi bheja. Decision letter ko attach karke “Read text on device” karein, ya relevant text paste karein; phir main local text mein dhoondh sakta/sakti hoon.'
+            ? 'Mujhe is sawal ka jawab aapke jode gaye documents mein nahi mila. Aap sambandhit letter ya bill bhi add kar sakte hain; main usmein dobara dhoondhunga/dhoondhungi.'
             : 'Local data mein abhi jawab nahi mila. Is Private mode mein kuch bhi online nahi bheja gaya. Agar yeh general sawal hai, “General information” mode select karke online lookup ko alag se allow karein.',
         SathiLanguageMode.hindi => sensitive
-            ? 'आपके फोन पर सेव टेक्स्ट में इस निजी सवाल का जवाब नहीं मिला। आपकी गोपनीयता के लिए सवाल, दस्तावेज़ या OCR टेक्स्ट ऑनलाइन नहीं भेजा गया। निर्णय-पत्र जोड़कर “Read text on device” चलाएँ या संबंधित टेक्स्ट पेस्ट करें।'
+            ? 'आपके जोड़े गए दस्तावेज़ों में इस सवाल का जवाब नहीं मिला। आप संबंधित पत्र या बिल भी जोड़ सकते हैं; मैं उसमें फिर से खोजूँगा/खोजूँगी।'
             : 'स्थानीय डेटा में जवाब नहीं मिला और इस मोड में कुछ भी ऑनलाइन नहीं भेजा गया। अगर सवाल सामान्य जानकारी के बारे में है, तो “General information” मोड चुनें और ऑनलाइन खोज की अनुमति दें।',
         SathiLanguageMode.english => sensitive
-            ? 'I could not find the answer in text saved on this phone. For privacy, I did not send your question, document, or OCR text online. Attach your decision letter and use “Read text on device”, or paste the relevant excerpt; I can then search it locally.'
+            ? 'I could not find the answer in the documents you added. You can add the relevant letter or bill, and I will look for the answer again.'
             : 'I could not find an offline answer. Nothing was sent online in Private mode. If this is a general-information question, select “General information” and separately allow online lookup.',
       },
       intent: 'general_help',

@@ -1,7 +1,7 @@
 name: sathi_claim_recovery
 description: Sathi — accessible, privacy-aware health insurance claim recovery companion.
 publish_to: "none"
-version: 1.2.0+4
+version: 1.2.0+5
 
 environment:
   sdk: ">=3.12.0 <4.0.0"
@@ -15,6 +15,8 @@ dependencies:
   file_picker: ^13.3.0
   http: ^1.5.0
   google_mlkit_text_recognition: ^0.17.1
+  pdfrx: ^2.4.8
+  image: ^4.5.4
   speech_to_text: ^7.5.0
   record: ^7.1.2
   path_provider: ^2.1.5

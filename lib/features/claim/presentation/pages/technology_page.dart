@@ -183,7 +183,7 @@ class _TechnologyPageState extends State<TechnologyPage> {
           _StackLayer(
             title: 'Local processing', icon: Icons.memory_rounded, subtitle: 'Private work that stays on your phone',
             chips: const ['AES-GCM encrypted vault', 'On-device RAG', 'Qwen3 0.6B', 'EmbeddingGemma 2', 'On-device OCR', 'Device speech'],
-            note: 'The app stores copied attachments, PII-masked OCR text, drafts and activity notes in an AES-GCM encrypted app-private vault. After downloading the optional Qwen3 0.6B language model and EmbeddingGemma 2 embedding model, Sathi can retrieve relevant local passages and generate grounded answers entirely on the device. OCR runs on supported images on-device. Device speech depends on Android/iOS speech-service settings. The model download itself needs internet once; inference and retrieval then run locally. Teal chips are available now; the two models and local RAG are highlighted only after both models are installed.',
+            note: 'The app stores copied attachments, PII-masked OCR text, drafts and activity notes in an AES-GCM encrypted app-private vault. After downloading the optional Qwen3 0.6B language model and EmbeddingGemma 2 embedding model, Sathi can retrieve relevant local passages and generate grounded answers entirely on the device. Sathi reads digital PDFs, scanned PDFs and supported photos on this phone. Scanned pages are processed with on-device OCR. Device speech depends on Android/iOS speech-service settings. The model download itself needs internet once; inference and retrieval then run locally. Teal chips are available now; the two models and local RAG are highlighted only after both models are installed.',
             active: {
               'AES-GCM encrypted vault', 'On-device OCR', 'Device speech',
               if (_localModelsReady) ...{'On-device RAG', 'Qwen3 0.6B', 'EmbeddingGemma 2'},
@@ -273,9 +273,9 @@ class _TechnologyPageState extends State<TechnologyPage> {
           const SizedBox(height: 14),
           const Text('Easy-to-follow journey', style: TextStyle(color: AppColors.navy, fontWeight: FontWeight.w900, fontSize: 17)),
           const SizedBox(height: 10),
-          const _StepLine(number: '1', title: 'Add a document', description: 'Take a photo or choose an image/PDF from your phone.'),
-          const _StepLine(number: '2', title: 'Read and check', description: 'For images, on-device OCR can extract text. Common identifiers are masked in the preview.'),
-          const _StepLine(number: '3', title: 'Understand the reason', description: 'Sathi checks encrypted local documents and the offline guide first. For a general question only, online lookup requires consent and a confirmation showing exactly what will be sent. No files, OCR, claim context or chat history are attached. Verified policy retrieval and insurer status APIs are not yet connected.'),
+          const _StepLine(number: '1', title: 'Add a document', description: 'Choose a PDF or photo from your phone.'),
+          const _StepLine(number: '2', title: 'Read and check', description: 'Sathi reads your PDF or photo automatically on this phone. Common identifiers are masked before the text is saved.'),
+          const _StepLine(number: '3', title: 'Understand the reason', description: 'Sathi reads encrypted local documents and checks the offline guide first. For a general question only, online lookup requires consent and a confirmation showing exactly what will be sent. No files, OCR, claim context or chat history are attached. Verified policy retrieval and insurer status APIs are not yet connected.'),
           const _StepLine(number: '4', title: 'Review the next step', description: 'Edit your draft, submit it through the insurer’s official channel, then record your progress.'),
           const SizedBox(height: 12),
           OutlinedButton.icon(

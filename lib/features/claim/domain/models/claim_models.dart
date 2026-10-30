@@ -10,6 +10,7 @@ class ClaimDocument {
     this.localPath,
     this.extractedText,
     this.storedLocally = false,
+    this.readFailed = false,
   });
 
   final String id;
@@ -26,6 +27,8 @@ class ClaimDocument {
   final String? extractedText;
   /// True when an encrypted app-private copy is stored in Sathi local vault.
   final bool storedLocally;
+  /// True when Sathi could not read enough text from this document.
+  final bool readFailed;
 
   ClaimDocument copyWith({
     bool? uploaded,
@@ -34,6 +37,7 @@ class ClaimDocument {
     String? localPath,
     String? extractedText,
     bool? storedLocally,
+    bool? readFailed,
     bool clearLocalPath = false,
     bool clearExtractedText = false,
     bool clearAttachment = false,
@@ -49,6 +53,7 @@ class ClaimDocument {
       localPath: clearAttachment ? null : (clearLocalPath ? localPath : (localPath ?? this.localPath)),
       extractedText: clearAttachment || clearExtractedText ? null : (extractedText ?? this.extractedText),
       storedLocally: clearAttachment ? false : (storedLocally ?? this.storedLocally),
+      readFailed: clearAttachment ? false : (readFailed ?? this.readFailed),
     );
   }
 }
@@ -188,14 +193,7 @@ class ClaimState {
       approvedAmount: 0,
       claimStatus: 'Not connected',
       insurerReason: 'No insurer decision letter text has been provided yet.',
-      documents: [
-        ClaimDocument(id: 'decision', title: 'Claim decision / rejection letter', description: 'The insurer letter showing the decision and stated reason.', required: false),
-        ClaimDocument(id: 'itemised_bill', title: 'Itemised hospital bill', description: 'Hospital charges broken down by line item.', required: false),
-        ClaimDocument(id: 'discharge', title: 'Discharge summary', description: 'Admission, diagnosis and discharge information.', required: false),
-        ClaimDocument(id: 'prescriptions', title: 'Doctor prescriptions', description: 'Prescriptions relevant to the treatment.', required: false),
-        ClaimDocument(id: 'reports', title: 'Investigation reports', description: 'Relevant lab, imaging or diagnostic reports.', required: false),
-        ClaimDocument(id: 'policy', title: 'Policy schedule / e-card', description: 'Relevant policy details. Do not upload more personal data than necessary.', required: false),
-      ],
+      documents: [],
       timeline: [],
       appealDraft: '',
     );

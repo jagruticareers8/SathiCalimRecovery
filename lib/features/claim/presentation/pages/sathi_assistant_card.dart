@@ -447,8 +447,8 @@ class _SathiAssistantCardState extends State<SathiAssistantCard> {
       _replyModel = null;
       _evidenceUsed = const [];
       _statusMessage = _queryMode == SathiQueryMode.privateLocal
-          ? 'Searching your encrypted local documents…'
-          : 'Checking your encrypted documents and offline guide first…';
+          ? 'Checking your documents…'
+          : 'Checking your documents and helpful guide…';
     });
     try {
       // Read the latest stored preference before each request; a UI switch can
@@ -488,13 +488,20 @@ class _SathiAssistantCardState extends State<SathiAssistantCard> {
         _actionIndex = reply.actionIndex;
         _actionLabel = reply.actionLabel;
         _replyMode = reply.mode;
-        _replyModel = reply.model;
+        _replyModel = null; // Model names and routing details are not user-facing.
         _evidenceUsed = reply.evidenceUsed;
-        _statusMessage = [reply.notice, if (reply.mode == 'gemini_agent') 'Live model: ${reply.model}.'].where((item) => item.trim().isNotEmpty).join(' ');
+        _statusMessage = switch (reply.mode) {
+          'gemini_agent' => 'General information answer. Your documents were not shared.',
+          'local_document_fact_not_found' || 'local_fact_not_found' || 'local_private_no_match' || 'local_no_match' => 'I could not find this detail in the documents you added.',
+          'local_document_fact' || 'local_document_search' || 'on_device_rag' => 'Answer based on your saved documents.',
+          'local_faq' => 'Answer from Sathi’s helpful guide.',
+          'on_device_rag_error' => 'Sathi could not finish this answer. Please try again.',
+          _ => 'Sathi checked the information saved on this phone.',
+        };
       });
     } catch (error) {
       if (!mounted) return;
-      setState(() { _answer = null; _replyMode = null; _replyModel = null; _evidenceUsed = const []; _statusMessage = error is StateError ? error.message.toString() : 'Live Sathi AI could not complete this request. Check the backend connection and try again. Error: $error'; });
+      setState(() { _answer = null; _replyMode = null; _replyModel = null; _evidenceUsed = const []; _statusMessage = 'Sathi could not complete this answer. Please try again.'; });
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -527,33 +534,27 @@ class _SathiAssistantCardState extends State<SathiAssistantCard> {
         )),
       ]),
       const SizedBox(height: 12),
-      const Text('Choose where Sathi can look', style: TextStyle(color: AppColors.navy, fontWeight: FontWeight.w800, fontSize: 12)),
-      const SizedBox(height: 6),
-      Wrap(spacing: 8, runSpacing: 6, children: [
-        ChoiceChip(
-          avatar: const Icon(Icons.lock_outline_rounded, size: 16),
-          label: const Text('Private files · on device'),
-          selected: _queryMode == SathiQueryMode.privateLocal,
-          onSelected: (_busy || _recordingForCloud || _listening) ? null : (_) => setState(() {
-            _queryMode = SathiQueryMode.privateLocal;
-            _statusMessage = 'Private mode: local documents only. Sathi will not send this question or file text to Gemini.';
-          }),
+      const Text(
+        'Choose what Sathi should use',
+        style: TextStyle(
+          color: AppColors.navy,
+          fontWeight: FontWeight.w800,
+          fontSize: 13,
         ),
-        ChoiceChip(
-          avatar: const Icon(Icons.public_rounded, size: 16),
-          label: const Text('General information'),
-          selected: _queryMode == SathiQueryMode.generalInformation,
-          onSelected: (_busy || _recordingForCloud || _listening) ? null : (_) => setState(() {
-            _queryMode = SathiQueryMode.generalInformation;
-            _statusMessage = 'General mode: local guide first. If needed, only a safe general question may go to Gemini; files and chat history are excluded.';
-          }),
-        ),
-      ]),
-      Text(
-        _queryMode == SathiQueryMode.privateLocal
-            ? 'Private mode searches encrypted document text saved on this phone. If no answer is found, Sathi asks you to add the missing text instead of going online.'
-            : 'General mode checks the offline guide first. Only if it cannot answer and online lookup is enabled may a non-personal question be sent; private documents and conversation history are never attached.',
-        style: const TextStyle(color: AppColors.muted, fontSize: 10, height: 1.4),
+      ),
+      const SizedBox(height: 8),
+      _queryModeOption(
+        mode: SathiQueryMode.privateLocal,
+        icon: Icons.folder_shared_outlined,
+        title: 'My documents',
+        subtitle: 'Search files saved on this phone. They stay private.',
+      ),
+      const SizedBox(height: 8),
+      _queryModeOption(
+        mode: SathiQueryMode.generalInformation,
+        icon: Icons.public_rounded,
+        title: 'General information',
+        subtitle: 'For general questions. Online lookup asks first.',
       ),
       const SizedBox(height: 12),
       TextField(
@@ -577,15 +578,16 @@ class _SathiAssistantCardState extends State<SathiAssistantCard> {
       ),
       const SizedBox(height: 7),
       Wrap(spacing: 6, runSpacing: 4, children: [
-        ActionChip(label: const Text('Claim reject kyun hua?'), onPressed: _busy ? null : () => _fillExample('Mera claim reject kyun hua?')),
+        ActionChip(label: const Text('Kitna approve hua?'), onPressed: _busy ? null : () => _fillExample('Mera claim kitne ka approve hua hai?')),
+        ActionChip(label: const Text('Claim status kya hai?'), onPressed: _busy ? null : () => _fillExample('Mera claim ka status kya hai?')),
         ActionChip(label: const Text('Kaun se documents chahiye?'), onPressed: _busy ? null : () => _fillExample('Kaun se documents chahiye?')),
-        ActionChip(label: const Text('Claim ka status kya hai?'), onPressed: _busy ? null : () => _fillExample('Mera claim ka status kya hai?')),
+        ActionChip(label: const Text('Last date kya hai?'), onPressed: _busy ? null : () => _fillExample('Documents submit karne ki last date kya hai?')),
       ]),
       const SizedBox(height: 10),
       SizedBox(width: double.infinity, child: FilledButton.icon(
         onPressed: _busy ? null : _askSathi,
         icon: _busy ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)) : const Icon(Icons.auto_awesome),
-        label: Text(_busy ? 'Please wait…' : 'Help me with this'),
+        label: Text(_busy ? 'Please wait…' : 'Ask Sathi'),
       )),
       if (_statusMessage != null) ...[
         const SizedBox(height: 8),
@@ -597,14 +599,14 @@ class _SathiAssistantCardState extends State<SathiAssistantCard> {
           Row(children: [
             const Icon(Icons.lightbulb_outline, size: 18, color: AppColors.tealDark),
             const SizedBox(width: 6),
-            const Expanded(child: Text('Suggested next step', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w900, color: AppColors.tealDark))),
+            const Expanded(child: Text('Sathi’s answer', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w900, color: AppColors.tealDark))),
             _modeBadge(_replyMode),
           ]),
           const SizedBox(height: 7),
           Text(_answer!, style: const TextStyle(fontSize: 12, color: AppColors.ink, height: 1.5)),
           if (_evidenceUsed.isNotEmpty) ...[
             const SizedBox(height: 9),
-            const Text('Evidence considered (from text you provided)', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: AppColors.navy)),
+            const Text('From your document', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: AppColors.navy)),
             const SizedBox(height: 4),
             ..._evidenceUsed.take(4).map((item) => Padding(
               padding: const EdgeInsets.only(bottom: 3),
@@ -628,19 +630,105 @@ class _SathiAssistantCardState extends State<SathiAssistantCard> {
     ]));
   }
 
+  Widget _queryModeOption({
+    required SathiQueryMode mode,
+    required IconData icon,
+    required String title,
+    required String subtitle,
+  }) {
+    final selected = _queryMode == mode;
+    final enabled = !_busy && !_recordingForCloud && !_listening;
+    return Semantics(
+      button: true,
+      selected: selected,
+      label: '$title. $subtitle',
+      child: Material(
+        color: selected ? AppColors.mint : Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(14),
+          onTap: !enabled || selected
+              ? null
+              : () => setState(() {
+                    _queryMode = mode;
+                    _statusMessage = mode == SathiQueryMode.privateLocal
+                        ? 'Sathi will look through the documents you added.'
+                        : 'General information mode selected. Your saved documents will not be shared.';
+                  }),
+          child: Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(
+                color: selected ? AppColors.teal : AppColors.border,
+                width: selected ? 1.5 : 1,
+              ),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  width: 38,
+                  height: 38,
+                  decoration: BoxDecoration(
+                    color: selected ? Colors.white : AppColors.page,
+                    borderRadius: BorderRadius.circular(11),
+                  ),
+                  child: Icon(
+                    icon,
+                    size: 20,
+                    color: selected ? AppColors.teal : AppColors.muted,
+                  ),
+                ),
+                const SizedBox(width: 11),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        style: TextStyle(
+                          color: AppColors.navy,
+                          fontWeight: FontWeight.w800,
+                          fontSize: 13,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        subtitle,
+                        style: const TextStyle(
+                          color: AppColors.muted,
+                          fontSize: 10,
+                          height: 1.35,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Icon(
+                  selected
+                      ? Icons.radio_button_checked_rounded
+                      : Icons.radio_button_unchecked_rounded,
+                  color: selected ? AppColors.teal : AppColors.muted,
+                  size: 20,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _modeBadge(String? mode) {
     final (label, color) = switch (mode) {
-      'gemini_agent' => ('GEMINI · GENERAL', AppColors.tealDark),
-      'on_device_rag' => ('ON-DEVICE AI', AppColors.tealDark),
-      'local_document_fact' => ('LOCAL OCR', AppColors.tealDark),
-      'local_document_search' => ('LOCAL DOCUMENTS', AppColors.tealDark),
-      'local_faq' => ('OFFLINE GUIDE', AppColors.tealDark),
-      'local_fact_not_found' => ('LOCAL ONLY', AppColors.amber),
-      'local_document_fact_not_found' => ('LOCAL ONLY', AppColors.amber),
-      'on_device_rag_error' => ('LOCAL AI ERROR', AppColors.amber),
-      'local_private_no_match' => ('PRIVATE · LOCAL ONLY', AppColors.amber),
-      'local_no_match' => ('OFFLINE GUIDE', AppColors.amber),
-      _ => ('AI UNAVAILABLE', AppColors.amber),
+      'gemini_agent' => ('GENERAL HELP', AppColors.tealDark),
+      'local_document_fact' || 'local_document_search' || 'on_device_rag' => ('FROM YOUR DOCUMENT', AppColors.green),
+      'local_document_fact_not_found' || 'local_fact_not_found' || 'local_private_no_match' || 'local_no_match' => ('NOT FOUND IN DOCUMENT', AppColors.amber),
+      'on_device_rag_error' => ('TRY AGAIN', AppColors.amber),
+      'local_faq' => ('HELPFUL GUIDE', AppColors.tealDark),
+      _ => ('SATHI', AppColors.tealDark),
     };
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),

@@ -7,139 +7,227 @@ import '../providers/claim_controller.dart';
 import 'sathi_assistant_card.dart';
 import 'technology_page.dart';
 
-/// Simple home flow: add the decision letter -> read it locally -> ask Sathi.
-/// The UI never presents the list of optional document types as a required checklist.
+/// Main user journey: add a document once, then ask Sathi in natural language.
 class HomePage extends StatelessWidget {
-  const HomePage({super.key, required this.onNavigate});
+  const HomePage({
+    super.key,
+    required this.onNavigate,
+    required this.onAddDocuments,
+  });
+
   final ValueChanged<int> onNavigate;
+  final VoidCallback onAddDocuments;
 
   @override
   Widget build(BuildContext context) {
-    final claim = context.watch<ClaimCubit>().state;
-    final attachedCount = claim.documents.where((document) => document.uploaded).length;
-    final readableDocuments = claim.documents
-        .where((document) => (document.extractedText ?? '').trim().isNotEmpty)
+    final documents = context
+        .watch<ClaimCubit>()
+        .state
+        .documents
+        .where((document) => document.uploaded)
         .toList();
-    final decisionRows = claim.documents.where((document) => document.id == 'decision');
-    final decisionLetter = decisionRows.isEmpty ? null : decisionRows.first;
-    final decisionTextReady = (decisionLetter?.extractedText ?? '').trim().isNotEmpty;
-    final decisionAttached = decisionLetter?.uploaded ?? false;
+    final readyCount = documents
+        .where((document) => (document.extractedText ?? '').trim().isNotEmpty)
+        .length;
+    final failedCount = documents.where((document) => document.readFailed).length;
+    final allReady = documents.isNotEmpty && readyCount == documents.length;
+
+    final heading = documents.isEmpty
+        ? 'Let’s understand your claim'
+        : allReady
+            ? 'Your documents are ready'
+            : failedCount > 0
+                ? 'One document needs a clearer copy'
+                : 'Sathi is reading your documents';
+    final description = documents.isEmpty
+        ? 'Add your insurance letter, hospital bill or report. Sathi will read it automatically.'
+        : allReady
+            ? 'Ask about your approved amount, claim decision, required documents or deadline.'
+            : failedCount > 0
+                ? 'Try adding a clearer photo or an unlocked PDF. You do not need to copy or paste anything.'
+                : 'You can ask your question as soon as your documents are ready.';
+    final buttonLabel = documents.isEmpty
+        ? 'Add a document'
+        : failedCount > 0
+            ? 'Try another document'
+            : 'Add another document';
 
     return SingleChildScrollView(
       padding: const EdgeInsets.fromLTRB(18, 18, 18, 28),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Row(children: [
-          Container(
-            height: 46,
-            width: 46,
-            decoration: BoxDecoration(color: AppColors.mint, borderRadius: BorderRadius.circular(15)),
-            child: const Icon(Icons.support_agent_rounded, color: AppColors.teal, size: 27),
-          ),
-          const SizedBox(width: 12),
-          const Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text('Sathi', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: AppColors.navy)),
-            Text('Your private claim companion', style: TextStyle(fontSize: 12, color: AppColors.muted)),
-          ])),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-            decoration: BoxDecoration(color: AppColors.mint, borderRadius: BorderRadius.circular(30)),
-            child: const Text('LOCAL FIRST', style: TextStyle(fontSize: 10, color: AppColors.tealDark, fontWeight: FontWeight.w800)),
-          ),
-        ]),
-        const SizedBox(height: 22),
-        Text('Namaste 👋', style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: AppColors.muted)),
-        const SizedBox(height: 6),
-        Text('Understand your health-insurance claim.', style: Theme.of(context).textTheme.headlineLarge),
-        const SizedBox(height: 9),
-        Text(
-          'Add your decision letter, read the text on this phone, then ask questions in Hindi, English or Hinglish.',
-          style: Theme.of(context).textTheme.bodyLarge?.copyWith(color: AppColors.muted),
-        ),
-        const SizedBox(height: 14),
-        SathiCard(
-          padding: const EdgeInsets.all(13),
-          child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Container(width: 38, height: 38, decoration: BoxDecoration(color: AppColors.mint, borderRadius: BorderRadius.circular(12)), child: const Icon(Icons.shield_outlined, color: AppColors.teal)),
-            const SizedBox(width: 10),
-            const Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text('Your private files stay on this phone', style: TextStyle(color: AppColors.navy, fontWeight: FontWeight.w800, fontSize: 13)),
-              SizedBox(height: 4),
-              Text('Sathi searches saved document text locally first. Gemini is optional and is only used for a separate general question after you confirm it.', style: TextStyle(color: AppColors.muted, fontSize: 11, height: 1.4)),
-            ])),
-            IconButton(
-              tooltip: 'Privacy and offline AI settings',
-              onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const TechnologyPage())),
-              icon: const Icon(Icons.arrow_forward_ios_rounded, size: 17, color: AppColors.teal),
-            ),
-          ]),
-        ),
-        const SizedBox(height: 14),
-        SathiCard(
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            const Text('START HERE', style: TextStyle(fontSize: 10, color: AppColors.teal, fontWeight: FontWeight.w900, letterSpacing: 1.3)),
-            const SizedBox(height: 7),
-            Text(
-              decisionTextReady ? 'Your decision-letter text is ready' : decisionAttached ? 'Next: read the decision letter' : '1. Add your decision letter',
-              style: const TextStyle(fontSize: 16, color: AppColors.navy, fontWeight: FontWeight.w900),
-            ),
-            const SizedBox(height: 5),
-            Text(
-              decisionTextReady
-                  ? 'Text is saved in the encrypted local vault. Ask Sathi below about the wording, amounts or next steps.'
-                  : decisionAttached
-                      ? 'The file is saved locally. For an image, choose “Read text on device”. For a PDF, open it in your PDF app, copy the relevant text and choose “Paste document text”.'
-                      : 'Choose the insurer’s rejection or partial-approval letter first. Other documents are optional unless the letter or your insurer asks for them.',
-              style: const TextStyle(color: AppColors.muted, fontSize: 12, height: 1.45),
-            ),
-            const SizedBox(height: 12),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton.icon(
-                onPressed: () => onNavigate(2),
-                icon: const Icon(Icons.folder_open_outlined),
-                label: Text('Open documents'),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                height: 46,
+                width: 46,
+                decoration: BoxDecoration(
+                  color: AppColors.mint,
+                  borderRadius: BorderRadius.circular(15),
+                ),
+                child: const Icon(
+                  Icons.support_agent_rounded,
+                  color: AppColors.teal,
+                  size: 27,
+                ),
               ),
-            ),
-            if (attachedCount > 0 || readableDocuments.isNotEmpty) ...[
-              const SizedBox(height: 8),
-              Text('$attachedCount file(s) saved · ${readableDocuments.length} with readable text', style: const TextStyle(color: AppColors.muted, fontSize: 11)),
+              const SizedBox(width: 12),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Sathi',
+                      style: TextStyle(
+                        fontSize: 22,
+                        fontWeight: FontWeight.w900,
+                        color: AppColors.navy,
+                      ),
+                    ),
+                    Text(
+                      'Your claim companion',
+                      style: TextStyle(fontSize: 12, color: AppColors.muted),
+                    ),
+                  ],
+                ),
+              ),
+              IconButton(
+                tooltip: 'Privacy and settings',
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const TechnologyPage()),
+                ),
+                icon: const Icon(
+                  Icons.info_outline_rounded,
+                  color: AppColors.teal,
+                ),
+              ),
             ],
-          ]),
-        ),
-        const SizedBox(height: 14),
-        SathiAssistantCard(
-          onNavigate: onNavigate,
-          claimContext: {
-            'attachedDocumentNames': claim.documents
-                .where((document) => document.uploaded && document.localPath != null)
-                .map((document) => document.fileName ?? document.title)
-                .toList(),
-            'documentTexts': claim.documents
-                .where((document) => (document.extractedText ?? '').trim().isNotEmpty)
-                .map((document) => {'title': document.title, 'text': document.extractedText})
-                .toList(),
-          },
-        ),
-        const SizedBox(height: 12),
-        SathiCard(
-          padding: const EdgeInsets.all(13),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            const Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Icon(Icons.info_outline_rounded, color: AppColors.amber, size: 20),
-              SizedBox(width: 9),
-              Expanded(child: Text('What Sathi cannot do yet', style: TextStyle(fontWeight: FontWeight.w800, color: AppColors.navy, fontSize: 13))),
-            ]),
-            const SizedBox(height: 5),
-            const Text('Sathi is not connected to an insurer or TPA. It cannot fetch live claim status or submit a claim. Its tracker records your actions on this device only.', style: TextStyle(color: AppColors.muted, fontSize: 11, height: 1.45)),
-            const SizedBox(height: 8),
-            Align(alignment: Alignment.centerLeft, child: TextButton.icon(
-              onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const TechnologyPage())),
-              icon: const Icon(Icons.settings_outlined, size: 17),
-              label: const Text('Privacy and offline AI settings'),
-            )),
-          ]),
-        ),
-      ]),
+          ),
+          const SizedBox(height: 22),
+          Text(
+            'Namaste 👋',
+            style: Theme.of(context)
+                .textTheme
+                .bodyMedium
+                ?.copyWith(color: AppColors.muted),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Understand your health-insurance claim.',
+            style: Theme.of(context).textTheme.headlineLarge,
+          ),
+          const SizedBox(height: 9),
+          Text(
+            'Upload your document once. Sathi reads it and helps explain what it means in simple language.',
+            style: Theme.of(context)
+                .textTheme
+                .bodyLarge
+                ?.copyWith(color: AppColors.muted),
+          ),
+          const SizedBox(height: 14),
+          SathiCard(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Icon(
+                      Icons.folder_open_outlined,
+                      color: AppColors.teal,
+                      size: 23,
+                    ),
+                    const SizedBox(width: 9),
+                    Expanded(
+                      child: Text(
+                        heading,
+                        style: const TextStyle(
+                          color: AppColors.navy,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
+                    if (allReady)
+                      const Icon(
+                        Icons.check_circle_rounded,
+                        color: AppColors.green,
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  description,
+                  style: const TextStyle(
+                    color: AppColors.muted,
+                    fontSize: 12,
+                    height: 1.45,
+                  ),
+                ),
+                const SizedBox(height: 13),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.icon(
+                    onPressed: onAddDocuments,
+                    icon: const Icon(Icons.add_rounded),
+                    label: Text(buttonLabel),
+                  ),
+                ),
+                if (documents.isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  TextButton(
+                    onPressed: () => onNavigate(2),
+                    child: const Text('View my documents'),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(height: 14),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: AppColors.mint,
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: const Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(Icons.lock_outline_rounded,
+                    color: AppColors.teal, size: 18),
+                SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Your documents stay on this phone. Sathi does not check live insurer status.',
+                    style: TextStyle(
+                      color: AppColors.tealDark,
+                      fontSize: 11,
+                      height: 1.4,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 14),
+          SathiAssistantCard(
+            onNavigate: onNavigate,
+            claimContext: {
+              'attachedDocumentNames': documents
+                  .map((document) => document.fileName ?? document.title)
+                  .toList(),
+              'documentTexts': documents
+                  .where((document) =>
+                      (document.extractedText ?? '').trim().isNotEmpty)
+                  .map((document) => {
+                        'title': document.title,
+                        'text': document.extractedText,
+                      })
+                  .toList(),
+            },
+          ),
+        ],
+      ),
     );
   }
 }

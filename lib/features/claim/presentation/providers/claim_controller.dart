@@ -32,28 +32,40 @@ class ClaimCubit extends Cubit<ClaimState> {
     try {
       final saved = await _vault.readSnapshot();
       final savedRows = saved['documents'];
-      final byId = <String, Map>{};
+      final restoredDocuments = <ClaimDocument>[];
       if (savedRows is List) {
+        final seenIds = <String>{};
         for (final row in savedRows) {
-          if (row is Map && row['id'] is String) byId[row['id'] as String] = row;
+          if (row is! Map || row['id'] is! String || row['uploaded'] != true) {
+            continue;
+          }
+          final id = row['id'] as String;
+          if (!seenIds.add(id)) continue;
+          final fileName = (row['fileName'] ?? 'Document').toString();
+          final uploadedAtText = row['uploadedAt'] as String?;
+          final extractedText = row['extractedText'] as String?;
+          restoredDocuments.add(ClaimDocument(
+            id: id,
+            title: (row['title'] ?? fileName).toString(),
+            description: (row['description'] ?? 'Added from your phone').toString(),
+            required: row['required'] == true,
+            uploaded: true,
+            fileName: fileName,
+            uploadedAt: uploadedAtText == null
+                ? null
+                : DateTime.tryParse(uploadedAtText),
+            // Never restore a temporary path from an earlier app session.
+            localPath: null,
+            extractedText: extractedText,
+            storedLocally: row['storedLocally'] == true,
+            readFailed: row['readFailed'] == true ||
+                (extractedText ?? '').trim().isEmpty,
+          ));
         }
       }
-      final restoredDocuments = state.documents.map((document) {
-        final row = byId[document.id];
-        if (row == null) return document;
-        final extractedText = row['extractedText'] as String?;
-        final fileName = row['fileName'] as String?;
-        final uploadedAtText = row['uploadedAt'] as String?;
-        return document.copyWith(
-          uploaded: row['uploaded'] == true,
-          fileName: fileName,
-          uploadedAt: uploadedAtText == null ? null : DateTime.tryParse(uploadedAtText),
-          clearLocalPath: true, // Never persist a potentially temporary source path.
-          extractedText: extractedText,
-          clearExtractedText: extractedText == null || extractedText.isEmpty,
-          storedLocally: row['storedLocally'] == true,
-        );
-      }).toList();
+      restoredDocuments.sort((a, b) =>
+          (a.uploadedAt ?? DateTime.fromMillisecondsSinceEpoch(0))
+              .compareTo(b.uploadedAt ?? DateTime.fromMillisecondsSinceEpoch(0)));
 
       final restoredTimeline = <ClaimTimelineEvent>[];
       final savedTimeline = saved['timeline'];
@@ -74,7 +86,8 @@ class ClaimCubit extends Cubit<ClaimState> {
         documents: restoredDocuments,
         timeline: restoredTimeline,
         appealDraft: (saved['appealDraft'] ?? '').toString(),
-        reconsiderationMarkedSubmitted: saved['reconsiderationMarkedSubmitted'] == true,
+        reconsiderationMarkedSubmitted:
+            saved['reconsiderationMarkedSubmitted'] == true,
       ));
     } catch (_) {
       // Do not silently overwrite encrypted data if decryption fails. This
@@ -96,6 +109,7 @@ class ClaimCubit extends Cubit<ClaimState> {
               // The OCR text is PII-masked before it reaches state and this
               // entire snapshot is encrypted by LocalPrivateVault.
               'extractedText': document.extractedText,
+              'readFailed': document.readFailed,
             }).toList(),
         'timeline': current.timeline.map((event) => <String, dynamic>{
               'title': event.title,
@@ -117,33 +131,41 @@ class ClaimCubit extends Cubit<ClaimState> {
     }
   }
 
-  Future<void> attachDocument(String id, String fileName, {String? localPath}) async {
+  /// Saves a selected file from picker bytes. This works with Android/iOS
+  /// content URIs and cloud-backed file providers where a stable path is not
+  /// guaranteed. The original file is not modified.
+  Future<void> attachDocumentBytes({
+    required String id,
+    required String fileName,
+    required List<int> sourceBytes,
+  }) async {
     await _ready;
-    if (localPath == null || localPath.trim().isEmpty) {
-      throw StateError('Sathi could not access this file path to create its encrypted local copy. Try choosing the file again, or paste its text instead.');
-    }
-    // An encrypted app-private copy is required before we label the file as saved.
-    await _vault.saveAttachment(id: id, sourcePath: localPath);
+    await _vault.saveAttachmentBytes(id: id, bytes: sourceBytes);
 
-    final now = DateTime.now();
-    final updated = state.documents.map((document) {
-      if (document.id != id) return document;
-      return document.copyWith(
-        uploaded: true,
-        fileName: fileName,
-        uploadedAt: now,
-        localPath: localPath,
-        storedLocally: true,
-        clearExtractedText: true,
-      );
-    }).toList();
-    final title = updated.firstWhere((document) => document.id == id).title;
+    final cleanName = fileName.split(RegExp(r'[/\\]')).last.trim();
+    final safeName = cleanName.isEmpty ? 'Health document' : cleanName;
+    final document = ClaimDocument(
+      id: id,
+      title: safeName,
+      description: 'Added from your phone',
+      required: false,
+      uploaded: true,
+      fileName: safeName,
+      uploadedAt: DateTime.now(),
+      localPath: null,
+      storedLocally: true,
+      readFailed: false,
+    );
+    final updated = [
+      ...state.documents.where((item) => item.id != id),
+      document,
+    ];
     emit(state.copyWith(
       documents: updated,
       timeline: [
         ClaimTimelineEvent(
-          title: 'Document saved privately',
-          description: '$title encrypted into Sathi local storage on this device. It has not been uploaded.',
+          title: 'Document added',
+          description: 'A copy of $safeName was saved privately on this phone.',
           dateLabel: 'Just now',
           done: true,
         ),
@@ -155,13 +177,41 @@ class ClaimCubit extends Cubit<ClaimState> {
     await _persistLocalState();
   }
 
+  Future<void> markDocumentReadFailed(String id) async {
+    await _ready;
+    final updated = state.documents.map((document) {
+      if (document.id != id) return document;
+      return document.copyWith(readFailed: true, clearExtractedText: true);
+    }).toList();
+    emit(state.copyWith(documents: updated, clearAnalysis: true));
+    await _persistLocalState();
+  }
+
+  /// Compatibility wrapper for callers that still have a readable file path.
+  /// New picker flows should use [attachDocumentBytes], because picker paths can
+  /// be temporary or unavailable for cloud-backed files.
+  Future<void> attachDocument(String id, String fileName, {String? localPath}) async {
+    await _ready;
+    if (localPath == null || localPath.trim().isEmpty) {
+      throw StateError('The selected file is no longer available. Please choose it again.');
+    }
+    final file = File(localPath);
+    if (!await file.exists()) {
+      throw StateError('The selected file is no longer available. Please choose it again.');
+    }
+    await attachDocumentBytes(
+      id: id,
+      fileName: fileName,
+      sourceBytes: await file.readAsBytes(),
+    );
+  }
+
   Future<void> removeDocument(String id) async {
     await _ready;
     await _vault.deleteAttachment(id);
-    final updated = state.documents.map((document) {
-      if (document.id != id) return document;
-      return document.copyWith(uploaded: false, clearAttachment: true);
-    }).toList();
+    final updated = state.documents
+        .where((document) => document.id != id)
+        .toList();
     emit(state.copyWith(documents: updated, clearAnalysis: true));
     await _persistLocalState();
   }
@@ -188,7 +238,7 @@ class ClaimCubit extends Cubit<ClaimState> {
     final redacted = PiiMasker.mask(maskedText.trim());
     final updated = state.documents.map((document) {
       if (document.id != id) return document;
-      return document.copyWith(extractedText: redacted);
+      return document.copyWith(extractedText: redacted, readFailed: false);
     }).toList();
     emit(state.copyWith(documents: updated, clearAnalysis: true));
     // Wait for the encrypted snapshot write before telling the user it was saved.
@@ -206,11 +256,11 @@ class ClaimCubit extends Cubit<ClaimState> {
       final noText = state.documents.where((d) => d.uploaded && (d.extractedText ?? '').trim().isEmpty).map((d) => d.title).toList();
       final result = ClaimAnalysis(
         summary: readable.isEmpty
-            ? 'No readable document text has been saved yet. Add a decision letter or bill, then choose “Read text on device”. No claim data was sent online.'
+            ? 'No readable document text was found yet. Add a clearer document and Sathi will try reading it again. No claim data was sent online.'
             : 'Sathi found readable text in ${readable.length} locally saved document(s). This is a local document-readiness check only; it does not verify coverage, claim status, or the insurer’s decision.',
         missingDocuments: noText,
         nextSteps: readable.isEmpty
-            ? const ['Attach the decision letter.', 'Run Read text on device or paste a relevant excerpt.', 'Ask Sathi in Private files mode.']
+            ? const ['Add a clear insurance letter or bill.', 'Ask Sathi once the document is ready.']
             : const ['Search the saved document text for the insurer’s reason.', 'Compare the stated reason with the supporting records.', 'Confirm exact requirements with the insurer through its official channel.'],
         disclaimer: 'OFFLINE LOCAL CHECK · No OCR text or claim details were sent to a server. This is not a coverage decision or a guarantee of claim recovery.',
         evidenceUsed: readable.map((document) => document.title).toList(),
