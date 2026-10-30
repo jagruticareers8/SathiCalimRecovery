@@ -170,42 +170,6 @@ class SathiAgentService {
     return reply;
   }
 
-  Map<String, dynamic> _safeContext(Map<String, dynamic>? source) {
-    if (source == null) return const {};
-    final raw = source['documentTexts'];
-    final documents = <Map<String, String>>[];
-    if (raw is List) {
-      for (final entry in raw.take(5)) {
-        if (entry is! Map) continue;
-        final title = (entry['title'] ?? 'User-provided document').toString();
-        final text = PiiMasker.mask((entry['text'] ?? '').toString()).trim();
-        if (text.isNotEmpty) {
-          documents.add({
-            'title': title.substring(
-              0,
-              title.length > 120 ? 120 : title.length,
-            ),
-            'text': text.substring(0, text.length > 6000 ? 6000 : text.length),
-          });
-        }
-      }
-    }
-    final namesRaw = source['attachedDocumentNames'];
-    final names = namesRaw is List
-        ? namesRaw.take(20).map((value) {
-            final masked = PiiMasker.mask(value.toString());
-            return masked.substring(
-              0,
-              masked.length > 120 ? 120 : masked.length,
-            );
-          }).toList()
-        : <String>[];
-    return {
-      if (documents.isNotEmpty) 'documentTexts': documents,
-      if (names.isNotEmpty) 'attachedDocumentNames': names,
-    };
-  }
-
   /// Sends a short WAV recording only after the user has separately opted into
   /// cloud voice transcription. The backend reads it in memory and must not log
   /// or persist it. If this call fails, caller should show a clear error and may

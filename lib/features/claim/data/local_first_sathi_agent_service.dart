@@ -915,7 +915,11 @@ class LocalFirstSathiAgentService {
         .replaceAll('\r', '')
         .split(RegExp(r'\n+|(?<=[.!?।])\s+'))
         .map((line) => line.replaceAll(RegExp(r'\s+'), ' ').trim())
-        .where((line) => line.isNotEmpty)
+        .where(
+          (line) =>
+              line.isNotEmpty &&
+              !line.toLowerCase().contains('synthetic test document'),
+        )
         .toList();
     if (lines.isEmpty) return const [];
 
@@ -2057,6 +2061,17 @@ class LocalFirstSathiAgentService {
             'settled',
           ]))
         score += 5;
+      if (kind == 'status' &&
+          _hasAny(lower, const [
+            'partially approved',
+            'partly approved',
+            'under review',
+            'under process',
+            'rejected',
+            'settled',
+          ])) {
+        score += 100;
+      }
       final hasFieldAnchor = switch (kind) {
         'reason' => _hasAny(lower, const [
           'reason',
@@ -2244,6 +2259,8 @@ class LocalFirstSathiAgentService {
                   kind == 'reason' ||
                   kind == 'prepare_reconsideration'
               ? 5
+              : kind == 'status'
+              ? 1
               : 3,
         )
         .toList();
