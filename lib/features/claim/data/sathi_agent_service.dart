@@ -10,16 +10,16 @@ enum SathiLanguageMode { hinglish, hindi, english }
 
 extension SathiLanguageModeValue on SathiLanguageMode {
   String get apiValue => switch (this) {
-        SathiLanguageMode.hinglish => 'hinglish',
-        SathiLanguageMode.hindi => 'hindi',
-        SathiLanguageMode.english => 'english',
-      };
+    SathiLanguageMode.hinglish => 'hinglish',
+    SathiLanguageMode.hindi => 'hindi',
+    SathiLanguageMode.english => 'english',
+  };
 
   String get label => switch (this) {
-        SathiLanguageMode.hinglish => 'Hinglish',
-        SathiLanguageMode.hindi => 'हिन्दी',
-        SathiLanguageMode.english => 'English',
-      };
+    SathiLanguageMode.hinglish => 'Hinglish',
+    SathiLanguageMode.hindi => 'हिन्दी',
+    SathiLanguageMode.english => 'English',
+  };
 }
 
 class SathiAgentReply {
@@ -39,6 +39,7 @@ class SathiAgentReply {
   final String intent;
   final int actionIndex;
   final String actionLabel;
+
   /// Only `gemini_agent` is accepted as a successful response.
   final String mode;
   final String model;
@@ -46,10 +47,15 @@ class SathiAgentReply {
   final String draft;
   final List<String> evidenceUsed;
 
-  factory SathiAgentReply.fromJson(Map<String, dynamic> json) => SathiAgentReply(
-        answer: json['answer'] as String? ?? 'I could not prepare an answer. Please try again.',
+  factory SathiAgentReply.fromJson(Map<String, dynamic> json) =>
+      SathiAgentReply(
+        answer:
+            json['answer'] as String? ??
+            'I could not prepare an answer. Please try again.',
         intent: json['intent'] as String? ?? 'general_help',
-        actionIndex: json['actionIndex'] is int ? json['actionIndex'] as int : 1,
+        actionIndex: json['actionIndex'] is int
+            ? json['actionIndex'] as int
+            : 1,
         actionLabel: json['actionLabel'] as String? ?? 'Review my claim',
         mode: json['mode'] as String? ?? 'unknown',
         model: json['model'] as String? ?? '',
@@ -66,8 +72,9 @@ class SathiAgentReply {
 /// this service never silently substitutes static content for a model result.
 class SathiAgentService {
   SathiAgentService({http.Client? client, String? baseUrl})
-      : _client = client ?? http.Client(),
-        baseUrl = (baseUrl ?? const String.fromEnvironment('SATHI_API_BASE_URL')).trim();
+    : _client = client ?? http.Client(),
+      baseUrl = (baseUrl ?? const String.fromEnvironment('SATHI_API_BASE_URL'))
+          .trim();
 
   final http.Client _client;
   final String baseUrl;
@@ -89,20 +96,29 @@ class SathiAgentService {
     List<Map<String, String>> chatHistory = const [],
   }) async {
     final safeMessage = PiiMasker.mask(message.trim());
-    if (safeMessage.isEmpty) throw StateError('Type or speak a question first.');
+    if (safeMessage.isEmpty)
+      throw StateError('Type or speak a question first.');
     if (!allowCloudAnalysis) {
-      throw StateError('Live AI is switched off. Open “How Sathi works” and enable cloud analysis after reviewing the privacy note.');
+      throw StateError(
+        'Live AI is switched off. Open “How Sathi works” and enable cloud analysis after reviewing the privacy note.',
+      );
     }
     if (!isConfigured) {
-      throw StateError('Sathi live AI is not connected. Start the backend and set SATHI_API_BASE_URL when running Flutter.');
+      throw StateError(
+        'Sathi live AI is not connected. Start the backend and set SATHI_API_BASE_URL when running Flutter.',
+      );
     }
     // This low-level cloud adapter is for general information only. The hybrid
     // router must never attach claim context, OCR, filenames, or prior chat turns.
     if (claimContext != null && claimContext.isNotEmpty) {
-      throw StateError('Private claim context cannot be sent to the online agent. Use local-only mode for your documents.');
+      throw StateError(
+        'Private claim context cannot be sent to the online agent. Use local-only mode for your documents.',
+      );
     }
     if (chatHistory.isNotEmpty) {
-      throw StateError('Prior conversation is not sent to the online general-information agent.');
+      throw StateError(
+        'Prior conversation is not sent to the online general-information agent.',
+      );
     }
 
     late final http.Response response;
@@ -141,11 +157,15 @@ class SathiAgentService {
 
     final decoded = jsonDecode(response.body);
     if (decoded is! Map<String, dynamic>) {
-      throw const FormatException('The Sathi backend returned an invalid response.');
+      throw const FormatException(
+        'The Sathi backend returned an invalid response.',
+      );
     }
     final reply = SathiAgentReply.fromJson(decoded);
     if (reply.mode != 'gemini_agent') {
-      throw StateError('The backend did not confirm a live AI response. No answer was shown as an actual result.');
+      throw StateError(
+        'The backend did not confirm a live AI response. No answer was shown as an actual result.',
+      );
     }
     return reply;
   }
@@ -160,13 +180,25 @@ class SathiAgentService {
         final title = (entry['title'] ?? 'User-provided document').toString();
         final text = PiiMasker.mask((entry['text'] ?? '').toString()).trim();
         if (text.isNotEmpty) {
-          documents.add({'title': title.substring(0, title.length > 120 ? 120 : title.length), 'text': text.substring(0, text.length > 6000 ? 6000 : text.length)});
+          documents.add({
+            'title': title.substring(
+              0,
+              title.length > 120 ? 120 : title.length,
+            ),
+            'text': text.substring(0, text.length > 6000 ? 6000 : text.length),
+          });
         }
       }
     }
     final namesRaw = source['attachedDocumentNames'];
     final names = namesRaw is List
-        ? namesRaw.take(20).map((value) { final masked = PiiMasker.mask(value.toString()); return masked.substring(0, masked.length > 120 ? 120 : masked.length); }).toList()
+        ? namesRaw.take(20).map((value) {
+            final masked = PiiMasker.mask(value.toString());
+            return masked.substring(
+              0,
+              masked.length > 120 ? 120 : masked.length,
+            );
+          }).toList()
         : <String>[];
     return {
       if (documents.isNotEmpty) 'documentTexts': documents,
@@ -184,33 +216,53 @@ class SathiAgentService {
     required bool allowCloudGeneralInformation,
     required bool confirmedForGeneralUse,
   }) async {
-    if (!allowCloudVoice || !allowCloudGeneralInformation || !confirmedForGeneralUse) {
-      throw StateError('Cloud voice requires separate voice consent, online general-information consent, General information mode, and per-recording confirmation.');
+    if (!allowCloudVoice ||
+        !allowCloudGeneralInformation ||
+        !confirmedForGeneralUse) {
+      throw StateError(
+        'Cloud voice requires separate voice consent, online general-information consent, General information mode, and per-recording confirmation.',
+      );
     }
     if (!isConfigured) {
       throw StateError('Sathi backend URL is not configured.');
     }
     final file = File(filePath);
-    if (!await file.exists()) throw StateError('The recording file was not found.');
+    if (!await file.exists())
+      throw StateError('The recording file was not found.');
     final size = await file.length();
-    if (size == 0) throw StateError('The recording is empty. Please try again.');
-    if (size > 8 * 1024 * 1024) throw StateError('The recording is too large. Keep it under 8 MB.');
+    if (size == 0)
+      throw StateError('The recording is empty. Please try again.');
+    if (size > 8 * 1024 * 1024)
+      throw StateError('The recording is too large. Keep it under 8 MB.');
 
-    final request = http.MultipartRequest('POST', _endpoint('/v1/voice/transcribe'))
-      ..fields['language_hint'] = 'hinglish'
-      ..fields['cloudConsent'] = 'true'
-      ..fields['query_mode'] = 'general_information'
-      ..fields['confirmed_for_general_use'] = 'true'
-      ..files.add(await http.MultipartFile.fromPath('audio', filePath, filename: 'sathi_voice.wav'));
+    final request =
+        http.MultipartRequest('POST', _endpoint('/v1/voice/transcribe'))
+          ..fields['language_hint'] = 'hinglish'
+          ..fields['cloudConsent'] = 'true'
+          ..fields['query_mode'] = 'general_information'
+          ..fields['confirmed_for_general_use'] = 'true'
+          ..files.add(
+            await http.MultipartFile.fromPath(
+              'audio',
+              filePath,
+              filename: 'sathi_voice.wav',
+            ),
+          );
     final streamed = await request.send().timeout(const Duration(seconds: 100));
     final response = await http.Response.fromStream(streamed);
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw StateError('Transcription service returned HTTP ${response.statusCode}.');
+      throw StateError(
+        'Transcription service returned HTTP ${response.statusCode}.',
+      );
     }
     final decoded = jsonDecode(response.body);
-    if (decoded is! Map<String, dynamic>) throw const FormatException('Invalid transcription response.');
+    if (decoded is! Map<String, dynamic>)
+      throw const FormatException('Invalid transcription response.');
     final transcript = (decoded['text'] as String? ?? '').trim();
-    if (transcript.isEmpty) throw StateError('No speech was recognised. Try speaking closer to the microphone.');
+    if (transcript.isEmpty)
+      throw StateError(
+        'No speech was recognised. Try speaking closer to the microphone.',
+      );
     return transcript;
   }
 }

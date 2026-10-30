@@ -34,14 +34,8 @@ class _AppShellState extends State<AppShell> {
   @override
   Widget build(BuildContext context) {
     final pages = [
-      HomePage(
-        onNavigate: _navigateTo,
-        onAddDocuments: _requestAddDocuments,
-      ),
-      ClaimPage(
-        onNavigate: _navigateTo,
-        onAddDocuments: _requestAddDocuments,
-      ),
+      HomePage(onNavigate: _navigateTo, onAddDocuments: _requestAddDocuments),
+      ClaimPage(onNavigate: _navigateTo, onAddDocuments: _requestAddDocuments),
       DocumentsPage(
         autoPickRequest: _documentPickRequest,
         onDocumentsReady: _returnHomeAfterDocuments,

@@ -34,15 +34,19 @@ class SathiOnDeviceRagAnswer {
 /// hundreds of MB of native model files in unit tests.
 abstract interface class SathiOnDeviceRagRuntime {
   Future<bool> get modelsReady;
-  Future<void> installModels({required void Function(String label, num progress) onProgress});
+  Future<void> installModels({
+    required void Function(String label, num progress) onProgress,
+  });
   Future<List<double>> embed(String text, {required bool isQuery});
   Future<String> generate(String prompt);
 }
 
 class SathiOnDeviceRagService {
-  SathiOnDeviceRagService({LocalPrivateVault? vault, SathiOnDeviceRagRuntime? runtime})
-      : _vault = vault ?? LocalPrivateVault(),
-        _runtime = runtime ?? FlutterEdgeAiSathiRagRuntime();
+  SathiOnDeviceRagService({
+    LocalPrivateVault? vault,
+    SathiOnDeviceRagRuntime? runtime,
+  }) : _vault = vault ?? LocalPrivateVault(),
+       _runtime = runtime ?? FlutterEdgeAiSathiRagRuntime();
 
   final LocalPrivateVault _vault;
   final SathiOnDeviceRagRuntime _runtime;
@@ -56,8 +60,9 @@ class SathiOnDeviceRagService {
 
   Future<bool> get modelsReady => _runtime.modelsReady;
 
-  Future<void> installModels({required void Function(String label, num progress) onProgress}) =>
-      _runtime.installModels(onProgress: onProgress);
+  Future<void> installModels({
+    required void Function(String label, num progress) onProgress,
+  }) => _runtime.installModels(onProgress: onProgress);
 
   /// RAG answer flow: local document/knowledge chunks -> semantic embeddings ->
   /// top evidence -> on-device LLM. No HTTP call is made by this service.
@@ -81,12 +86,14 @@ class SathiOnDeviceRagService {
     final chunks = <_RagChunk>[];
     for (final source in sources) {
       for (final piece in splitTextIntoChunks(source.text)) {
-        chunks.add(_RagChunk(
-          title: source.title,
-          text: piece,
-          sourceKey: _stableKey('${source.title}\n$piece'),
-          isUserDocument: !source.title.startsWith('Sathi offline guide'),
-        ));
+        chunks.add(
+          _RagChunk(
+            title: source.title,
+            text: piece,
+            sourceKey: _stableKey('${source.title}\n$piece'),
+            isUserDocument: !source.title.startsWith('Sathi offline guide'),
+          ),
+        );
         if (chunks.length >= 220) break;
       }
       if (chunks.length >= 220) break;
@@ -96,8 +103,11 @@ class SathiOnDeviceRagService {
     try {
       final snapshot = await _vault.readSnapshot();
       final rawIndex = snapshot['ragEmbeddingCache'];
-      final cache = rawIndex is Map ? Map<String, dynamic>.from(rawIndex) : <String, dynamic>{};
-      final sameEmbeddingProfile = cache['profile'] == FlutterEdgeAiSathiRagRuntime.embeddingProfile;
+      final cache = rawIndex is Map
+          ? Map<String, dynamic>.from(rawIndex)
+          : <String, dynamic>{};
+      final sameEmbeddingProfile =
+          cache['profile'] == FlutterEdgeAiSathiRagRuntime.embeddingProfile;
       final vectorRows = sameEmbeddingProfile && cache['vectors'] is Map
           ? Map<String, dynamic>.from(cache['vectors'] as Map)
           : <String, dynamic>{};
@@ -106,12 +116,16 @@ class SathiOnDeviceRagService {
       for (final chunk in chunks) {
         List<double>? vector;
         final cached = vectorRows[chunk.sourceKey];
-        if (cached is List && cached.isNotEmpty && cached.every((item) => item is num)) {
+        if (cached is List &&
+            cached.isNotEmpty &&
+            cached.every((item) => item is num)) {
           vector = cached.map((item) => (item as num).toDouble()).toList();
         }
         vector ??= await _runtime.embed(chunk.text, isQuery: false);
         prepared.add(_EmbeddedChunk(chunk: chunk, vector: vector));
-        vectorRows[chunk.sourceKey] = vector.map((value) => double.parse(value.toStringAsFixed(5))).toList();
+        vectorRows[chunk.sourceKey] = vector
+            .map((value) => double.parse(value.toStringAsFixed(5)))
+            .toList();
       }
 
       // Cap the encrypted cache so adding many documents cannot grow it without
@@ -131,8 +145,14 @@ class SathiOnDeviceRagService {
           .map((turn) => (turn['content'] ?? turn['message'] ?? '').trim())
           .where((text) => text.isNotEmpty)
           .toList();
-      final retrievalQuestion = [...priorUserQuestions.reversed.take(2).toList().reversed, cleanQuestion].join('\n');
-      final queryVector = await _runtime.embed(retrievalQuestion, isQuery: true);
+      final retrievalQuestion = [
+        ...priorUserQuestions.reversed.take(2).toList().reversed,
+        cleanQuestion,
+      ].join('\n');
+      final queryVector = await _runtime.embed(
+        retrievalQuestion,
+        isQuery: true,
+      );
       final queryTerms = _terms(cleanQuestion);
       final ranked = prepared.map((entry) {
         final semantic = cosineSimilarity(queryVector, entry.vector);
@@ -146,8 +166,7 @@ class SathiOnDeviceRagService {
           chunk: entry.chunk,
           score: semantic + math.min(lexical, 1.0).toDouble() * 0.12,
         );
-      }).toList()
-        ..sort((a, b) => b.score.compareTo(a.score));
+      }).toList()..sort((a, b) => b.score.compareTo(a.score));
 
       if (ranked.isEmpty) return null;
 
@@ -161,7 +180,9 @@ class SathiOnDeviceRagService {
       final useUserDocuments = bestDocumentScore >= 0.25;
       final effectiveEvidence = <_RankedChunk>[];
       final evidenceKeys = <String>{};
-      for (final row in ranked.where((item) => item.chunk.isUserDocument == useUserDocuments)) {
+      for (final row in ranked.where(
+        (item) => item.chunk.isUserDocument == useUserDocuments,
+      )) {
         if (row.score < 0.25) break;
         final key = '${row.chunk.title}|${row.chunk.text}';
         if (evidenceKeys.add(key)) effectiveEvidence.add(row);
@@ -201,20 +222,30 @@ class SathiOnDeviceRagService {
     required List<Map<String, String>> chatHistory,
   }) {
     final languageRule = switch (language) {
-      SathiLanguageMode.hinglish => 'Reply in natural, simple Hinglish written in Roman script, matching the user.',
-      SathiLanguageMode.hindi => 'उत्तर सरल, स्पष्ट हिन्दी देवनागरी लिपि में दें।',
+      SathiLanguageMode.hinglish =>
+        'Reply in natural, simple Hinglish written in Roman script, matching the user.',
+      SathiLanguageMode.hindi =>
+        'उत्तर सरल, स्पष्ट हिन्दी देवनागरी लिपि में दें।',
       SathiLanguageMode.english => 'Reply in plain, simple English.',
     };
-    final context = evidence.asMap().entries.map((entry) {
-      final item = entry.value;
-      return '[${entry.key + 1}] SOURCE: ${item.chunk.title}\n${item.chunk.text}';
-    }).join('\n\n');
-    final recentHistory = chatHistory.skip(chatHistory.length > 4 ? chatHistory.length - 4 : 0).map((turn) {
-      final role = (turn['role'] ?? 'user').toUpperCase();
-      final content = (turn['content'] ?? turn['message'] ?? '').trim();
-      if (content.isEmpty) return '';
-      return '$role: ${content.length > 400 ? content.substring(0, 400) : content}';
-    }).where((line) => line.isNotEmpty).join('\n');
+    final context = evidence
+        .asMap()
+        .entries
+        .map((entry) {
+          final item = entry.value;
+          return '[${entry.key + 1}] SOURCE: ${item.chunk.title}\n${item.chunk.text}';
+        })
+        .join('\n\n');
+    final recentHistory = chatHistory
+        .skip(chatHistory.length > 4 ? chatHistory.length - 4 : 0)
+        .map((turn) {
+          final role = (turn['role'] ?? 'user').toUpperCase();
+          final content = (turn['content'] ?? turn['message'] ?? '').trim();
+          if (content.isEmpty) return '';
+          return '$role: ${content.length > 400 ? content.substring(0, 400) : content}';
+        })
+        .where((line) => line.isNotEmpty)
+        .join('\n');
 
     return '''You are Sathi, a careful local health-insurance document assistant running entirely on this device.
 $languageRule
@@ -322,18 +353,66 @@ Answer grounded in the evidence. If not enough evidence, abstain clearly.''';
   }
 
   static const List<SathiRagSource> _knowledgeBase = [
-    SathiRagSource(title: 'Sathi offline guide · claim process', text: 'A health insurance claim decision letter states the insurer\'s current decision and any reason or information requested. Read the exact reason, compare it with the policy and submitted records, and keep copies of every document and communication. Sathi cannot see a live insurer status unless an official authenticated insurer integration is configured.'),
-    SathiRagSource(title: 'Sathi offline guide · reconsideration', text: 'If a health insurance claim is rejected or partly approved, read the exact reason in the written decision, gather relevant evidence such as itemised bills, discharge summary, prescriptions and diagnostic reports where applicable, and ask the insurer for the exact policy clause and official reconsideration procedure. Verify the deadline with the insurer or policy wording. A reconsideration letter is only a draft until the customer sends it through an official channel.'),
-    SathiRagSource(title: 'Sathi offline guide · documents', text: 'Possible health claim documents include the claim form, itemised hospital bill, payment receipts, discharge summary, prescriptions, diagnostic reports, investigation results and doctor certificates when applicable. Which documents are actually required depends on claim type, insurer requests and policy terms. Do not assume every document is mandatory for every claim.'),
-    SathiRagSource(title: 'Sathi offline guide · co-pay', text: 'Co-payment or co-pay is the share of an eligible medical expense that the insured person must pay under the policy. The exact percentage or amount, what expenses it applies to, and any exceptions are defined by the specific policy. A generic definition cannot determine the customer\'s exact liability without their policy wording and bill.'),
-    SathiRagSource(title: 'Sathi offline guide · deductible', text: 'A deductible is an amount the policyholder must bear before the insurer pays the covered amount, according to the policy. The calculation and whether it applies per claim, year or another basis depend on the policy wording. Check the actual policy schedule before calculating a benefit.'),
-    SathiRagSource(title: 'Sathi offline guide · sum insured', text: 'Sum insured is the maximum cover amount subject to the policy terms, sub-limits, exclusions, deductibles, co-payment and available remaining cover. It does not mean the insurer will automatically pay every expense up to that amount. The actual eligible amount must be checked against the policy and claim decision.'),
-    SathiRagSource(title: 'Sathi offline guide · waiting period', text: 'A waiting period is a period specified by the policy during which certain illnesses, treatments or pre-existing conditions may not be covered or may have restricted coverage. Durations, exceptions and start dates differ by product and policy. Verify the specific clause; do not assume a generic number of days.'),
-    SathiRagSource(title: 'Sathi offline guide · exclusion', text: 'A policy exclusion is a condition, treatment, expense or situation the policy says is not covered, subject to the exact wording and applicable rules. To understand a rejection, locate the specific exclusion cited in the written decision and read the full clause and exceptions. Sathi should not conclude that a claim is invalid just because an exclusion keyword appears.'),
-    SathiRagSource(title: 'Sathi offline guide · cashless vs reimbursement', text: 'In cashless treatment, the network hospital and insurer or third-party administrator coordinate eligible payments under the insurer\'s process; the customer may still need to pay non-covered items or amounts not approved. In reimbursement, the customer usually pays first and sends documents for review. The actual steps and eligibility depend on the insurer and policy.'),
-    SathiRagSource(title: 'Sathi offline guide · partial approval', text: 'A partial approval means an insurer has approved only part of the amount requested in its decision. The difference may relate to policy limits, non-payable items, deductions, missing records or other stated reasons, but the reason must be read from the actual decision letter. Do not infer the cause without evidence. Ask for an itemised calculation and exact policy clause if unclear.'),
-    SathiRagSource(title: 'Sathi offline guide · privacy', text: 'Private claim documents and their OCR text are intended to remain on the device. This local assistant searches saved text and local guidance before any optional general-information fallback. Only an explicit confirmed general question may be sent to the cloud; private documents, extracted text, claim identifiers and conversation history must not be attached.'),
-    SathiRagSource(title: 'Sathi offline guide · no match', text: 'When a saved document does not contain the requested fact, say that it was not found in the local text. Suggest the exact information or page needed. Do not guess a claim amount, approval status, policy clause, deadline, insurer status, or coverage result.'),
+    SathiRagSource(
+      title: 'Sathi offline guide · claim process',
+      text:
+          'A health insurance claim decision letter states the insurer\'s current decision and any reason or information requested. Read the exact reason, compare it with the policy and submitted records, and keep copies of every document and communication. Sathi cannot see a live insurer status unless an official authenticated insurer integration is configured.',
+    ),
+    SathiRagSource(
+      title: 'Sathi offline guide · reconsideration',
+      text:
+          'If a health insurance claim is rejected or partly approved, read the exact reason in the written decision, gather relevant evidence such as itemised bills, discharge summary, prescriptions and diagnostic reports where applicable, and ask the insurer for the exact policy clause and official reconsideration procedure. Verify the deadline with the insurer or policy wording. A reconsideration letter is only a draft until the customer sends it through an official channel.',
+    ),
+    SathiRagSource(
+      title: 'Sathi offline guide · documents',
+      text:
+          'Possible health claim documents include the claim form, itemised hospital bill, payment receipts, discharge summary, prescriptions, diagnostic reports, investigation results and doctor certificates when applicable. Which documents are actually required depends on claim type, insurer requests and policy terms. Do not assume every document is mandatory for every claim.',
+    ),
+    SathiRagSource(
+      title: 'Sathi offline guide · co-pay',
+      text:
+          'Co-payment or co-pay is the share of an eligible medical expense that the insured person must pay under the policy. The exact percentage or amount, what expenses it applies to, and any exceptions are defined by the specific policy. A generic definition cannot determine the customer\'s exact liability without their policy wording and bill.',
+    ),
+    SathiRagSource(
+      title: 'Sathi offline guide · deductible',
+      text:
+          'A deductible is an amount the policyholder must bear before the insurer pays the covered amount, according to the policy. The calculation and whether it applies per claim, year or another basis depend on the policy wording. Check the actual policy schedule before calculating a benefit.',
+    ),
+    SathiRagSource(
+      title: 'Sathi offline guide · sum insured',
+      text:
+          'Sum insured is the maximum cover amount subject to the policy terms, sub-limits, exclusions, deductibles, co-payment and available remaining cover. It does not mean the insurer will automatically pay every expense up to that amount. The actual eligible amount must be checked against the policy and claim decision.',
+    ),
+    SathiRagSource(
+      title: 'Sathi offline guide · waiting period',
+      text:
+          'A waiting period is a period specified by the policy during which certain illnesses, treatments or pre-existing conditions may not be covered or may have restricted coverage. Durations, exceptions and start dates differ by product and policy. Verify the specific clause; do not assume a generic number of days.',
+    ),
+    SathiRagSource(
+      title: 'Sathi offline guide · exclusion',
+      text:
+          'A policy exclusion is a condition, treatment, expense or situation the policy says is not covered, subject to the exact wording and applicable rules. To understand a rejection, locate the specific exclusion cited in the written decision and read the full clause and exceptions. Sathi should not conclude that a claim is invalid just because an exclusion keyword appears.',
+    ),
+    SathiRagSource(
+      title: 'Sathi offline guide · cashless vs reimbursement',
+      text:
+          'In cashless treatment, the network hospital and insurer or third-party administrator coordinate eligible payments under the insurer\'s process; the customer may still need to pay non-covered items or amounts not approved. In reimbursement, the customer usually pays first and sends documents for review. The actual steps and eligibility depend on the insurer and policy.',
+    ),
+    SathiRagSource(
+      title: 'Sathi offline guide · partial approval',
+      text:
+          'A partial approval means an insurer has approved only part of the amount requested in its decision. The difference may relate to policy limits, non-payable items, deductions, missing records or other stated reasons, but the reason must be read from the actual decision letter. Do not infer the cause without evidence. Ask for an itemised calculation and exact policy clause if unclear.',
+    ),
+    SathiRagSource(
+      title: 'Sathi offline guide · privacy',
+      text:
+          'Private claim documents and their OCR text are intended to remain on the device. This local assistant searches saved text and local guidance before any optional general-information fallback. Only an explicit confirmed general question may be sent to the cloud; private documents, extracted text, claim identifiers and conversation history must not be attached.',
+    ),
+    SathiRagSource(
+      title: 'Sathi offline guide · no match',
+      text:
+          'When a saved document does not contain the requested fact, say that it was not found in the local text. Suggest the exact information or page needed. Do not guess a claim amount, approval status, policy clause, deadline, insurer status, or coverage result.',
+    ),
   ];
 }
 
@@ -341,8 +420,10 @@ class FlutterEdgeAiSathiRagRuntime implements SathiOnDeviceRagRuntime {
   static const inferenceFile = 'Qwen3-0.6B_dynamic_wi4b32_afp32.litertlm';
   static const embeddingFile = 'embeddinggemma-2-text-270m.litertlm';
   static const embeddingProfile = 'embeddinggemma2-text270m-768-v1';
-  static const inferenceUrl = 'https://huggingface.co/litert-community/Qwen3-0.6B/resolve/main/Qwen3-0.6B_dynamic_wi4b32_afp32.litertlm';
-  static const embeddingUrl = 'https://huggingface.co/litert-community/embeddinggemma-2-text-270m-litert-lm/resolve/9be6e8b90982095dc05c2bd162e4b954ee4dbac7/embeddinggemma-2-text-270m.litertlm';
+  static const inferenceUrl =
+      'https://huggingface.co/litert-community/Qwen3-0.6B/resolve/main/Qwen3-0.6B_dynamic_wi4b32_afp32.litertlm';
+  static const embeddingUrl =
+      'https://huggingface.co/litert-community/embeddinggemma-2-text-270m-litert-lm/resolve/9be6e8b90982095dc05c2bd162e4b954ee4dbac7/embeddinggemma-2-text-270m.litertlm';
 
   static bool _initialised = false;
   static Future<void>? _initialising;
@@ -381,20 +462,28 @@ class FlutterEdgeAiSathiRagRuntime implements SathiOnDeviceRagRuntime {
   }
 
   @override
-  Future<void> installModels({required void Function(String label, num progress) onProgress}) async {
+  Future<void> installModels({
+    required void Function(String label, num progress) onProgress,
+  }) async {
     await initialize();
     if (!await FlutterEdgeAi.isModelInstalled(inferenceFile)) {
       await FlutterEdgeAi.installModel(
-        modelType: ModelType.qwen3,
-        fileType: ModelFileType.litertlm,
-      ).fromNetwork(inferenceUrl)
-          .withProgress((progress) => onProgress('Offline language model', (progress as num)))
+            modelType: ModelType.qwen3,
+            fileType: ModelFileType.litertlm,
+          )
+          .fromNetwork(inferenceUrl)
+          .withProgress(
+            (progress) =>
+                onProgress('Offline language model', (progress as num)),
+          )
           .install();
     }
     if (!await FlutterEdgeAi.isModelInstalled(embeddingFile)) {
       await FlutterEdgeAi.installEmbedder()
           .modelFromNetwork(embeddingUrl)
-          .withModelProgress((progress) => onProgress('Semantic search model', progress))
+          .withModelProgress(
+            (progress) => onProgress('Semantic search model', progress),
+          )
           .install();
     }
   }
@@ -417,7 +506,8 @@ class FlutterEdgeAiSathiRagRuntime implements SathiOnDeviceRagRuntime {
     try {
       final chat = await model.createChat(
         maxOutputTokens: 320,
-        systemInstruction: 'You are a grounded, privacy-preserving health insurance document assistant. Follow the provided evidence only.',
+        systemInstruction:
+            'You are a grounded, privacy-preserving health insurance document assistant. Follow the provided evidence only.',
       );
       try {
         await chat.addQueryChunk(Message.text(text: prompt, isUser: true));
@@ -436,7 +526,12 @@ class FlutterEdgeAiSathiRagRuntime implements SathiOnDeviceRagRuntime {
 }
 
 class _RagChunk {
-  const _RagChunk({required this.title, required this.text, required this.sourceKey, required this.isUserDocument});
+  const _RagChunk({
+    required this.title,
+    required this.text,
+    required this.sourceKey,
+    required this.isUserDocument,
+  });
   final String title;
   final String text;
   final String sourceKey;

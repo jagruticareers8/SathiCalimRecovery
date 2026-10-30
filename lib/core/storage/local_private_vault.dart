@@ -14,7 +14,7 @@ import 'package:path_provider/path_provider.dart';
 /// network requests.
 class LocalPrivateVault {
   LocalPrivateVault({FlutterSecureStorage? secureStorage})
-      : _secureStorage = secureStorage ?? const FlutterSecureStorage();
+    : _secureStorage = secureStorage ?? const FlutterSecureStorage();
 
   static const _keyName = 'sathi_private_vault_aes256_key_v1';
   static const _vaultFileName = 'sathi_private_vault_v1.enc';
@@ -35,10 +35,13 @@ class LocalPrivateVault {
     return root;
   }
 
-  Future<File> _snapshotFile() async => File('${(await _rootDirectory()).path}/$_vaultFileName');
+  Future<File> _snapshotFile() async =>
+      File('${(await _rootDirectory()).path}/$_vaultFileName');
 
   Future<Directory> _attachmentsDirectory() async {
-    final directory = Directory('${(await _rootDirectory()).path}/$_attachmentsDirectoryName');
+    final directory = Directory(
+      '${(await _rootDirectory()).path}/$_attachmentsDirectoryName',
+    );
     if (!await directory.exists()) await directory.create(recursive: true);
     return directory;
   }
@@ -53,7 +56,9 @@ class LocalPrivateVault {
     if (encoded != null && encoded.isNotEmpty) {
       final keyBytes = base64Decode(encoded);
       if (keyBytes.length != 32) {
-        throw StateError('Sathi local-vault key is invalid. Do not delete vault files manually; use the local-data reset flow.');
+        throw StateError(
+          'Sathi local-vault key is invalid. Do not delete vault files manually; use the local-data reset flow.',
+        );
       }
       return SecretKey(keyBytes);
     }
@@ -64,7 +69,9 @@ class LocalPrivateVault {
     final attachmentDirectory = await _attachmentsDirectory();
     final hasAttachments = !(await attachmentDirectory.list().isEmpty);
     if (await snapshot.exists() || hasAttachments) {
-      throw StateError('Sathi could not find the key for your encrypted local data. Your files were not uploaded. Restore the device secure backup or reset the local vault after exporting anything you can still open.');
+      throw StateError(
+        'Sathi could not find the key for your encrypted local data. Your files were not uploaded. Restore the device secure backup or reset the local vault after exporting anything you can still open.',
+      );
     }
 
     final generated = await _cipher.newSecretKey();
@@ -92,7 +99,9 @@ class LocalPrivateVault {
     final clearBytes = await _decryptBytes(await file.readAsBytes());
     final decoded = jsonDecode(utf8.decode(clearBytes));
     if (decoded is! Map<String, dynamic>) {
-      throw const FormatException('Sathi local-vault snapshot is not valid JSON.');
+      throw const FormatException(
+        'Sathi local-vault snapshot is not valid JSON.',
+      );
     }
     return decoded;
   }
@@ -106,7 +115,10 @@ class LocalPrivateVault {
       final merged = <String, dynamic>{...current, ...updates};
       final encoded = jsonEncode(merged);
       final file = await _snapshotFile();
-      await file.writeAsBytes(await _encryptBytes(utf8.encode(encoded)), flush: true);
+      await file.writeAsBytes(
+        await _encryptBytes(utf8.encode(encoded)),
+        flush: true,
+      );
     });
     _writeTail = next;
     return next;
@@ -117,7 +129,10 @@ class LocalPrivateVault {
     final encoded = jsonEncode(snapshot);
     final next = _writeTail.catchError((Object _) {}).then((_) async {
       final file = await _snapshotFile();
-      await file.writeAsBytes(await _encryptBytes(utf8.encode(encoded)), flush: true);
+      await file.writeAsBytes(
+        await _encryptBytes(utf8.encode(encoded)),
+        flush: true,
+      );
     });
     _writeTail = next;
     return next;
@@ -140,15 +155,22 @@ class LocalPrivateVault {
   }
 
   /// Encrypt a selected source file into app-private storage.
-  Future<void> saveAttachment({required String id, required String sourcePath}) async {
+  Future<void> saveAttachment({
+    required String id,
+    required String sourcePath,
+  }) async {
     final source = File(sourcePath);
     if (!await source.exists()) {
-      throw StateError('The selected file is no longer available. Please attach it again.');
+      throw StateError(
+        'The selected file is no longer available. Please attach it again.',
+      );
     }
     final size = await source.length();
     if (size <= 0) throw StateError('The selected file is empty.');
     if (size > _maxAttachmentBytes) {
-      throw StateError('This prototype supports files up to 25 MB. Select a smaller file.');
+      throw StateError(
+        'This prototype supports files up to 25 MB. Select a smaller file.',
+      );
     }
     final bytes = await source.readAsBytes();
     final encrypted = await _encryptBytes(bytes);
@@ -156,17 +178,24 @@ class LocalPrivateVault {
     await destination.writeAsBytes(encrypted, flush: true);
   }
 
-  Future<bool> hasAttachment(String id) async => (await _attachmentFile(id)).exists();
+  Future<bool> hasAttachment(String id) async =>
+      (await _attachmentFile(id)).exists();
 
   /// Decrypts a short-lived copy for on-device OCR. The caller MUST delete the
   /// returned temporary file in a finally block as soon as OCR has completed.
-  Future<String?> materializeAttachmentForOcr({required String id, required String fileName}) async {
+  Future<String?> materializeAttachmentForOcr({
+    required String id,
+    required String fileName,
+  }) async {
     final encryptedFile = await _attachmentFile(id);
     if (!await encryptedFile.exists()) return null;
     final bytes = await _decryptBytes(await encryptedFile.readAsBytes());
     final temp = await getTemporaryDirectory();
-    final extension = fileName.contains('.') ? fileName.split('.').last.toLowerCase() : 'bin';
-    final tempPath = '${temp.path}/sathi_ocr_${_safeId(id)}_${DateTime.now().microsecondsSinceEpoch}.$extension';
+    final extension = fileName.contains('.')
+        ? fileName.split('.').last.toLowerCase()
+        : 'bin';
+    final tempPath =
+        '${temp.path}/sathi_ocr_${_safeId(id)}_${DateTime.now().microsecondsSinceEpoch}.$extension';
     await File(tempPath).writeAsBytes(bytes, flush: true);
     return tempPath;
   }
@@ -189,18 +218,22 @@ class LocalPrivateVault {
   Future<List<int>> _encryptBytes(List<int> clearBytes) async {
     final secretKey = await _getOrCreateKey();
     final box = await _cipher.encrypt(clearBytes, secretKey: secretKey);
-    return utf8.encode(jsonEncode({
-      'version': 1,
-      'nonce': base64Encode(box.nonce),
-      'cipherText': base64Encode(box.cipherText),
-      'mac': base64Encode(box.mac.bytes),
-    }));
+    return utf8.encode(
+      jsonEncode({
+        'version': 1,
+        'nonce': base64Encode(box.nonce),
+        'cipherText': base64Encode(box.cipherText),
+        'mac': base64Encode(box.mac.bytes),
+      }),
+    );
   }
 
   Future<List<int>> _decryptBytes(List<int> encodedBytes) async {
     final envelope = jsonDecode(utf8.decode(encodedBytes));
     if (envelope is! Map<String, dynamic> || envelope['version'] != 1) {
-      throw const FormatException('Sathi encrypted local file has an unsupported format.');
+      throw const FormatException(
+        'Sathi encrypted local file has an unsupported format.',
+      );
     }
     final secretKey = await _getOrCreateKey();
     final box = SecretBox(

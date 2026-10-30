@@ -24,8 +24,13 @@ import '../providers/claim_controller.dart';
 /// - Optional cloud voice requires General information mode, two consent switches,
 ///   and a per-recording confirmation.
 class SathiAssistantCard extends StatefulWidget {
-  const SathiAssistantCard({super.key, required this.onNavigate, this.claimContext = const {}});
+  const SathiAssistantCard({
+    super.key,
+    required this.onNavigate,
+    this.claimContext = const {},
+  });
   final ValueChanged<int> onNavigate;
+
   /// Contains only user-attached document names/OCR text; never seeded demo claim values.
   final Map<String, dynamic> claimContext;
 
@@ -38,7 +43,9 @@ class _SathiAssistantCardState extends State<SathiAssistantCard> {
   final _speech = stt.SpeechToText();
   final _recorder = AudioRecorder();
   final _cloudAgent = SathiAgentService();
-  late final LocalFirstSathiAgentService _agent = LocalFirstSathiAgentService(cloudService: _cloudAgent);
+  late final LocalFirstSathiAgentService _agent = LocalFirstSathiAgentService(
+    cloudService: _cloudAgent,
+  );
   final _privacyStore = PrivacySettingsStore();
   final List<Map<String, String>> _chatHistory = [];
 
@@ -86,7 +93,8 @@ class _SathiAssistantCardState extends State<SathiAssistantCard> {
     }
   }
 
-  Future<void> _initialiseSpeech() => _speechInitFuture ??= _doInitialiseSpeech();
+  Future<void> _initialiseSpeech() =>
+      _speechInitFuture ??= _doInitialiseSpeech();
 
   Future<void> _doInitialiseSpeech() async {
     try {
@@ -103,7 +111,8 @@ class _SathiAssistantCardState extends State<SathiAssistantCard> {
           if (!mounted) return;
           final rawMessage = error.errorMsg.toLowerCase();
           final normalized = rawMessage.replaceAll(RegExp(r'[^a-z0-9]'), '');
-          final isNoMatch = normalized.contains('nomatch') ||
+          final isNoMatch =
+              normalized.contains('nomatch') ||
               normalized.contains('speechtimeout') ||
               normalized.contains('nospeech');
           setState(() {
@@ -117,11 +126,15 @@ class _SathiAssistantCardState extends State<SathiAssistantCard> {
                   ? 'I could not recognise the full sentence. I kept any transcript received; please review it or tap the mic to try again.'
                   : 'I did not catch that. On the next try, wait for “Listening…” and speak close to the microphone for a short sentence.';
             } else if (normalized.contains('permission')) {
-              _statusMessage = 'Microphone permission is needed. Allow it in your phone settings and try again.';
-            } else if (normalized.contains('locale') || normalized.contains('language')) {
-              _statusMessage = 'This speech language is not installed on your phone. Install Hindi speech support or choose English.';
+              _statusMessage =
+                  'Microphone permission is needed. Allow it in your phone settings and try again.';
+            } else if (normalized.contains('locale') ||
+                normalized.contains('language')) {
+              _statusMessage =
+                  'This speech language is not installed on your phone. Install Hindi speech support or choose English.';
             } else {
-              _statusMessage = 'Device speech recognition stopped ($rawMessage). Tap the microphone to retry, use AI Hinglish voice in How Sathi works, or type your question.';
+              _statusMessage =
+                  'Device speech recognition stopped ($rawMessage). Tap the microphone to retry, use AI Hinglish voice in How Sathi works, or type your question.';
             }
           });
         },
@@ -130,14 +143,16 @@ class _SathiAssistantCardState extends State<SathiAssistantCard> {
       setState(() {
         _speechReady = available;
         if (!available) {
-          _statusMessage = 'Speech service is unavailable. Check microphone permission and install/enable a speech recognition service.';
+          _statusMessage =
+              'Speech service is unavailable. Check microphone permission and install/enable a speech recognition service.';
         }
       });
     } catch (_) {
       if (!mounted) return;
       setState(() {
         _speechReady = false;
-        _statusMessage = 'Could not initialise the device speech service. You can still type your question.';
+        _statusMessage =
+            'Could not initialise the device speech service. You can still type your question.';
       });
     }
   }
@@ -179,15 +194,25 @@ class _SathiAssistantCardState extends State<SathiAssistantCard> {
         _allowCloudVoice = false;
         _allowCloudText = false;
       }
-      if (!_allowCloudVoice || !_allowCloudText || _queryMode != SathiQueryMode.generalInformation) {
+      if (!_allowCloudVoice ||
+          !_allowCloudText ||
+          _queryMode != SathiQueryMode.generalInformation) {
         final path = _recordingPath;
-        try { await _recorder.cancel(); } catch (_) {}
-        if (path != null) { try { await File(path).delete(); } catch (_) {} }
-        if (mounted) setState(() {
-          _recordingForCloud = false;
-          _recordingPath = null;
-          _statusMessage = 'Cloud voice consent was turned off. The recording was discarded and not sent.';
-        });
+        try {
+          await _recorder.cancel();
+        } catch (_) {}
+        if (path != null) {
+          try {
+            await File(path).delete();
+          } catch (_) {}
+        }
+        if (mounted)
+          setState(() {
+            _recordingForCloud = false;
+            _recordingPath = null;
+            _statusMessage =
+                'Cloud voice consent was turned off. The recording was discarded and not sent.';
+          });
         return;
       }
       await _stopCloudRecordingAndTranscribe();
@@ -205,7 +230,9 @@ class _SathiAssistantCardState extends State<SathiAssistantCard> {
     // plugin's isListening flag settling immediately. Recover before deciding
     // whether this tap means Stop or Start.
     if (_deviceSpeechNeedsReset) {
-      try { await _speech.cancel(); } catch (_) {}
+      try {
+        await _speech.cancel();
+      } catch (_) {}
       await Future<void>.delayed(const Duration(milliseconds: 350));
       _deviceSpeechNeedsReset = false;
       if (mounted) setState(() => _listening = false);
@@ -216,10 +243,17 @@ class _SathiAssistantCardState extends State<SathiAssistantCard> {
     }
 
     // Cloud audio has its own explicit consent, separate from cloud text analysis.
-    if (_allowCloudVoice && _allowCloudText && _agent.isConfigured && _queryMode == SathiQueryMode.generalInformation) {
+    if (_allowCloudVoice &&
+        _allowCloudText &&
+        _agent.isConfigured &&
+        _queryMode == SathiQueryMode.generalInformation) {
       final confirmed = await _confirmCloudVoiceUpload();
       if (!confirmed) {
-        if (mounted) setState(() => _statusMessage = 'Cloud recording cancelled. No recording was sent. You can type the question or use device speech; the phone speech service may have its own network behaviour.');
+        if (mounted)
+          setState(
+            () => _statusMessage =
+                'Cloud recording cancelled. No recording was sent. You can type the question or use device speech; the phone speech service may have its own network behaviour.',
+          );
         return;
       }
       await _startCloudRecording();
@@ -231,51 +265,83 @@ class _SathiAssistantCardState extends State<SathiAssistantCard> {
   Future<bool> _confirmCloudVoiceUpload() async {
     if (!mounted) return false;
     return await showDialog<bool>(
-      context: context,
-      barrierDismissible: false,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Send voice to online transcription?'),
-        content: const Text(
-          'This recording will be sent to your configured Sathi backend and Gemini to turn speech into text. Use this only for a general question. Do not say your name, policy/claim number, diagnosis, bill amount, or private claim details. Your documents and chat history are not attached, but the audio itself leaves this device.',
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel cloud recording')),
-          FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Send general audio')),
-        ],
-      ),
-    ) ?? false;
+          context: context,
+          barrierDismissible: false,
+          builder: (dialogContext) => AlertDialog(
+            title: const Text('Send voice to online transcription?'),
+            content: const Text(
+              'This recording will be sent to your configured Sathi backend and Gemini to turn speech into text. Use this only for a general question. Do not say your name, policy/claim number, diagnosis, bill amount, or private claim details. Your documents and chat history are not attached, but the audio itself leaves this device.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext, false),
+                child: const Text('Cancel cloud recording'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(dialogContext, true),
+                child: const Text('Send general audio'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
   }
 
   Future<bool> _confirmOnlineGeneralLookup(String question) async {
     if (!mounted) return false;
-    final preview = question.length > 260 ? '${question.substring(0, 260)}…' : question;
+    final preview = question.length > 260
+        ? '${question.substring(0, 260)}…'
+        : question;
     return await showDialog<bool>(
-      context: context,
-      barrierDismissible: false,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Use online general information?'),
-        content: SingleChildScrollView(child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('Sathi searched your local documents and offline guide first. Nothing relevant was found. Only the question shown below will be sent to Gemini; no claim files, OCR text, documents, or chat history will be attached.'),
-            const SizedBox(height: 12),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(color: AppColors.mint, borderRadius: BorderRadius.circular(10)),
-              child: Text(preview, style: const TextStyle(color: AppColors.ink, fontSize: 13)),
+          context: context,
+          barrierDismissible: false,
+          builder: (dialogContext) => AlertDialog(
+            title: const Text('Use online general information?'),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Sathi searched your local documents and offline guide first. Nothing relevant was found. Only the question shown below will be sent to Gemini; no claim files, OCR text, documents, or chat history will be attached.',
+                  ),
+                  const SizedBox(height: 12),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: AppColors.mint,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Text(
+                      preview,
+                      style: const TextStyle(
+                        color: AppColors.ink,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  const Text(
+                    'If this includes personal details, a medical diagnosis, a claim/policy number, or a specific claim decision, cancel and use Private mode.',
+                    style: TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                ],
+              ),
             ),
-            const SizedBox(height: 10),
-            const Text('If this includes personal details, a medical diagnosis, a claim/policy number, or a specific claim decision, cancel and use Private mode.', style: TextStyle(fontWeight: FontWeight.w700)),
-          ],
-        )),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel · stay local')),
-          FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Send question only')),
-        ],
-      ),
-    ) ?? false;
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext, false),
+                child: const Text('Cancel · stay local'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(dialogContext, true),
+                child: const Text('Send question only'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
   }
 
   Future<void> _startDeviceSpeech() async {
@@ -295,7 +361,10 @@ class _SathiAssistantCardState extends State<SathiAssistantCard> {
       await _initialiseSpeech();
       if (!mounted) return;
       if (!_speechReady) {
-        setState(() => _statusMessage = 'Device speech is unavailable. Check microphone permission and your emulator speech service, or enable AI Hinglish voice in How Sathi works.');
+        setState(
+          () => _statusMessage =
+              'Device speech is unavailable. Check microphone permission and your emulator speech service, or enable AI Hinglish voice in How Sathi works.',
+        );
         return;
       }
 
@@ -310,7 +379,10 @@ class _SathiAssistantCardState extends State<SathiAssistantCard> {
         return;
       }
 
-      setState(() => _statusMessage = 'Starting microphone (${localeId.replaceAll('_', '-')})… Wait for “Listening…” before speaking.');
+      setState(
+        () => _statusMessage =
+            'Starting microphone (${localeId.replaceAll('_', '-')})… Wait for “Listening…” before speaking.',
+      );
       await _speech.listen(
         onResult: (result) {
           if (!mounted) return;
@@ -321,14 +393,17 @@ class _SathiAssistantCardState extends State<SathiAssistantCard> {
             if (words.isNotEmpty) {
               _textController.value = TextEditingValue(
                 text: result.recognizedWords,
-                selection: TextSelection.collapsed(offset: result.recognizedWords.length),
+                selection: TextSelection.collapsed(
+                  offset: result.recognizedWords.length,
+                ),
               );
             }
             _listening = !result.finalResult;
             if (result.finalResult && words.isNotEmpty) {
               _listening = false;
               _deviceSpeechNeedsReset = false;
-              _statusMessage = 'Voice captured. Review the transcript, then tap “Help me with this”.';
+              _statusMessage =
+                  'Voice captured. Review the transcript, then tap “Help me with this”.';
             }
           });
         },
@@ -353,14 +428,16 @@ class _SathiAssistantCardState extends State<SathiAssistantCard> {
         if (active) {
           _statusMessage = 'Listening… Speak now, then pause when you finish.';
         } else if (!_receivedSpeechResult && !_deviceSpeechNeedsReset) {
-          _statusMessage = 'The speech service did not start. Check the emulator microphone and speech service, then tap to retry.';
+          _statusMessage =
+              'The speech service did not start. Check the emulator microphone and speech service, then tap to retry.';
         }
       });
     } catch (error) {
       if (!mounted) return;
       setState(() {
         _listening = false;
-        _statusMessage = 'Could not start the microphone. Check microphone permission and speech service settings. Details: $error';
+        _statusMessage =
+            'Could not start the microphone. Check microphone permission and speech service settings. Details: $error';
       });
     } finally {
       _startingDeviceSpeech = false;
@@ -371,26 +448,37 @@ class _SathiAssistantCardState extends State<SathiAssistantCard> {
     try {
       final allowed = await _recorder.hasPermission();
       if (!allowed) {
-        if (mounted) setState(() => _statusMessage = 'Microphone permission was denied. Allow it in Settings to use AI Hinglish voice.');
+        if (mounted)
+          setState(
+            () => _statusMessage =
+                'Microphone permission was denied. Allow it in Settings to use AI Hinglish voice.',
+          );
         return;
       }
       final directory = await getTemporaryDirectory();
-      final path = '${directory.path}/sathi_voice_${DateTime.now().microsecondsSinceEpoch}.wav';
+      final path =
+          '${directory.path}/sathi_voice_${DateTime.now().microsecondsSinceEpoch}.wav';
       await _recorder.start(
-        const RecordConfig(encoder: AudioEncoder.wav, sampleRate: 16000, numChannels: 1),
+        const RecordConfig(
+          encoder: AudioEncoder.wav,
+          sampleRate: 16000,
+          numChannels: 1,
+        ),
         path: path,
       );
       if (!mounted) return;
       setState(() {
         _recordingPath = path;
         _recordingForCloud = true;
-        _statusMessage = 'AI Hinglish voice is recording. Tap stop when finished. Audio will be sent to your configured Sathi backend for transcription.';
+        _statusMessage =
+            'AI Hinglish voice is recording. Tap stop when finished. Audio will be sent to your configured Sathi backend for transcription.';
       });
     } catch (error) {
       if (!mounted) return;
       setState(() {
         _recordingForCloud = false;
-        _statusMessage = 'Could not start audio recording. Check microphone permissions. Details: $error';
+        _statusMessage =
+            'Could not start audio recording. Check microphone permissions. Details: $error';
       });
     }
   }
@@ -417,27 +505,37 @@ class _SathiAssistantCardState extends State<SathiAssistantCard> {
           text: transcript,
           selection: TextSelection.collapsed(offset: transcript.length),
         );
-        _statusMessage = 'AI transcription complete. Check the words before sending your question to Sathi.';
+        _statusMessage =
+            'AI transcription complete. Check the words before sending your question to Sathi.';
       });
     } catch (error) {
       if (!mounted) return;
-      setState(() => _statusMessage = 'AI transcription failed: $error. You can try device speech or type your question.');
+      setState(
+        () => _statusMessage =
+            'AI transcription failed: $error. You can try device speech or type your question.',
+      );
     } finally {
       if (path != null) {
-        try { await File(path).delete(); } catch (_) {}
+        try {
+          await File(path).delete();
+        } catch (_) {}
       }
-      if (mounted) setState(() {
-        _recordingPath = null;
-        _recordingForCloud = false;
-        _busy = false;
-      });
+      if (mounted)
+        setState(() {
+          _recordingPath = null;
+          _recordingForCloud = false;
+          _busy = false;
+        });
     }
   }
 
   Future<void> _askSathi() async {
     final input = _textController.text.trim();
     if (input.isEmpty) {
-      setState(() => _statusMessage = 'Type a question or tap the microphone to speak.');
+      setState(
+        () =>
+            _statusMessage = 'Type a question or tap the microphone to speak.',
+      );
       return;
     }
     setState(() {
@@ -488,20 +586,36 @@ class _SathiAssistantCardState extends State<SathiAssistantCard> {
         _actionIndex = reply.actionIndex;
         _actionLabel = reply.actionLabel;
         _replyMode = reply.mode;
-        _replyModel = null; // Model names and routing details are not user-facing.
+        _replyModel =
+            null; // Model names and routing details are not user-facing.
         _evidenceUsed = reply.evidenceUsed;
         _statusMessage = switch (reply.mode) {
-          'gemini_agent' => 'General information answer. Your documents were not shared.',
-          'local_document_fact_not_found' || 'local_fact_not_found' || 'local_private_no_match' || 'local_no_match' => 'I could not find this detail in the documents you added.',
-          'local_document_fact' || 'local_document_search' || 'on_device_rag' => 'Answer based on your saved documents.',
+          'gemini_agent' =>
+            'General information answer. Your documents were not shared.',
+          'local_document_fact_not_found' ||
+          'local_fact_not_found' ||
+          'local_private_no_match' ||
+          'local_no_match' =>
+            'I could not find this detail in the documents you added.',
+          'local_document_fact' ||
+          'local_document_search' ||
+          'on_device_rag' => 'Answer based on your saved documents.',
           'local_faq' => 'Answer from Sathi’s helpful guide.',
-          'on_device_rag_error' => 'Sathi could not finish this answer. Please try again.',
+          'on_device_rag_error' =>
+            'Sathi could not finish this answer. Please try again.',
           _ => 'Sathi checked the information saved on this phone.',
         };
       });
     } catch (error) {
       if (!mounted) return;
-      setState(() { _answer = null; _replyMode = null; _replyModel = null; _evidenceUsed = const []; _statusMessage = 'Sathi could not complete this answer. Please try again.'; });
+      setState(() {
+        _answer = null;
+        _replyMode = null;
+        _replyModel = null;
+        _evidenceUsed = const [];
+        _statusMessage =
+            'Sathi could not complete this answer. Please try again.';
+      });
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -510,7 +624,9 @@ class _SathiAssistantCardState extends State<SathiAssistantCard> {
   void _fillExample(String phrase) {
     setState(() {
       _textController.text = phrase;
-      _textController.selection = TextSelection.collapsed(offset: phrase.length);
+      _textController.selection = TextSelection.collapsed(
+        offset: phrase.length,
+      );
       _statusMessage = 'Example added. Tap “Help me with this”.';
     });
   }
@@ -518,116 +634,298 @@ class _SathiAssistantCardState extends State<SathiAssistantCard> {
   @override
   Widget build(BuildContext context) {
     final isMicActive = _listening || _recordingForCloud;
-    return SathiCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Row(children: [
-        Container(width: 42, height: 42, decoration: BoxDecoration(color: AppColors.mint, borderRadius: BorderRadius.circular(13)), child: const Icon(Icons.forum_outlined, color: AppColors.teal)),
-        const SizedBox(width: 10),
-        const Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text('Ask Sathi', style: TextStyle(color: AppColors.navy, fontWeight: FontWeight.w900, fontSize: 16)),
-          Text('Hindi, English ya Hinglish mein poochhein', style: TextStyle(color: AppColors.muted, fontSize: 11)),
-        ])),
-        DropdownButtonHideUnderline(child: DropdownButton<SathiLanguageMode>(
-          value: _language,
-          borderRadius: BorderRadius.circular(12),
-          items: SathiLanguageMode.values.map((value) => DropdownMenuItem(value: value, child: Text(value.label))).toList(),
-          onChanged: (value) => setState(() => _language = value ?? SathiLanguageMode.hinglish),
-        )),
-      ]),
-      const SizedBox(height: 12),
-      const Text(
-        'Choose what Sathi should use',
-        style: TextStyle(
-          color: AppColors.navy,
-          fontWeight: FontWeight.w800,
-          fontSize: 13,
-        ),
-      ),
-      const SizedBox(height: 8),
-      _queryModeOption(
-        mode: SathiQueryMode.privateLocal,
-        icon: Icons.folder_shared_outlined,
-        title: 'My documents',
-        subtitle: 'Search files saved on this phone. They stay private.',
-      ),
-      const SizedBox(height: 8),
-      _queryModeOption(
-        mode: SathiQueryMode.generalInformation,
-        icon: Icons.public_rounded,
-        title: 'General information',
-        subtitle: 'For general questions. Online lookup asks first.',
-      ),
-      const SizedBox(height: 12),
-      TextField(
-        controller: _textController,
-        minLines: 1,
-        maxLines: 4,
-        textCapitalization: TextCapitalization.sentences,
-        decoration: InputDecoration(
-          hintText: switch (_language) {
-            SathiLanguageMode.hinglish => 'Jaise: Mera claim reject ho gaya, ab kya karu?',
-            SathiLanguageMode.hindi => 'जैसे: मेरा क्लेम रिजेक्ट हो गया, अब क्या करूँ?',
-            SathiLanguageMode.english => 'E.g. Why was my claim partly paid?',
-          },
-          prefixIcon: const Icon(Icons.chat_bubble_outline),
-          suffixIcon: IconButton(
-            tooltip: _recordingForCloud ? 'Stop AI transcription' : (_listening ? 'Stop device speech' : 'Speak your question'),
-            onPressed: _busy ? null : _toggleVoice,
-            icon: Icon(isMicActive ? Icons.stop_circle_outlined : Icons.mic_none_rounded, color: isMicActive ? AppColors.red : AppColors.teal),
+    return SathiCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 42,
+                height: 42,
+                decoration: BoxDecoration(
+                  color: AppColors.mint,
+                  borderRadius: BorderRadius.circular(13),
+                ),
+                child: const Icon(Icons.forum_outlined, color: AppColors.teal),
+              ),
+              const SizedBox(width: 10),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Ask Sathi',
+                      style: TextStyle(
+                        color: AppColors.navy,
+                        fontWeight: FontWeight.w900,
+                        fontSize: 16,
+                      ),
+                    ),
+                    Text(
+                      'Hindi, English ya Hinglish mein poochhein',
+                      style: TextStyle(color: AppColors.muted, fontSize: 11),
+                    ),
+                  ],
+                ),
+              ),
+              DropdownButtonHideUnderline(
+                child: DropdownButton<SathiLanguageMode>(
+                  value: _language,
+                  borderRadius: BorderRadius.circular(12),
+                  items: SathiLanguageMode.values
+                      .map(
+                        (value) => DropdownMenuItem(
+                          value: value,
+                          child: Text(value.label),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: (value) => setState(
+                    () => _language = value ?? SathiLanguageMode.hinglish,
+                  ),
+                ),
+              ),
+            ],
           ),
-        ),
-      ),
-      const SizedBox(height: 7),
-      Wrap(spacing: 6, runSpacing: 4, children: [
-        ActionChip(label: const Text('Kitna approve hua?'), onPressed: _busy ? null : () => _fillExample('Mera claim kitne ka approve hua hai?')),
-        ActionChip(label: const Text('Claim status kya hai?'), onPressed: _busy ? null : () => _fillExample('Mera claim ka status kya hai?')),
-        ActionChip(label: const Text('Kaun se documents chahiye?'), onPressed: _busy ? null : () => _fillExample('Kaun se documents chahiye?')),
-        ActionChip(label: const Text('Last date kya hai?'), onPressed: _busy ? null : () => _fillExample('Documents submit karne ki last date kya hai?')),
-      ]),
-      const SizedBox(height: 10),
-      SizedBox(width: double.infinity, child: FilledButton.icon(
-        onPressed: _busy ? null : _askSathi,
-        icon: _busy ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)) : const Icon(Icons.auto_awesome),
-        label: Text(_busy ? 'Please wait…' : 'Ask Sathi'),
-      )),
-      if (_statusMessage != null) ...[
-        const SizedBox(height: 8),
-        Text(_statusMessage!, style: const TextStyle(fontSize: 10, color: AppColors.muted, height: 1.4)),
-      ],
-      if (_answer != null) ...[
-        const SizedBox(height: 12),
-        Container(width: double.infinity, padding: const EdgeInsets.all(13), decoration: BoxDecoration(color: AppColors.mint, borderRadius: BorderRadius.circular(14)), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Row(children: [
-            const Icon(Icons.lightbulb_outline, size: 18, color: AppColors.tealDark),
-            const SizedBox(width: 6),
-            const Expanded(child: Text('Sathi’s answer', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w900, color: AppColors.tealDark))),
-            _modeBadge(_replyMode),
-          ]),
+          const SizedBox(height: 12),
+          const Text(
+            'Choose what Sathi should use',
+            style: TextStyle(
+              color: AppColors.navy,
+              fontWeight: FontWeight.w800,
+              fontSize: 13,
+            ),
+          ),
+          const SizedBox(height: 8),
+          _queryModeOption(
+            mode: SathiQueryMode.privateLocal,
+            icon: Icons.folder_shared_outlined,
+            title: 'My documents',
+            subtitle: 'Search files saved on this phone. They stay private.',
+          ),
+          const SizedBox(height: 8),
+          _queryModeOption(
+            mode: SathiQueryMode.generalInformation,
+            icon: Icons.public_rounded,
+            title: 'General information',
+            subtitle: 'For general questions. Online lookup asks first.',
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _textController,
+            minLines: 1,
+            maxLines: 4,
+            textCapitalization: TextCapitalization.sentences,
+            decoration: InputDecoration(
+              hintText: switch (_language) {
+                SathiLanguageMode.hinglish =>
+                  'Jaise: Mera claim reject ho gaya, ab kya karu?',
+                SathiLanguageMode.hindi =>
+                  'जैसे: मेरा क्लेम रिजेक्ट हो गया, अब क्या करूँ?',
+                SathiLanguageMode.english =>
+                  'E.g. Why was my claim partly paid?',
+              },
+              prefixIcon: const Icon(Icons.chat_bubble_outline),
+              suffixIcon: IconButton(
+                tooltip: _recordingForCloud
+                    ? 'Stop AI transcription'
+                    : (_listening
+                          ? 'Stop device speech'
+                          : 'Speak your question'),
+                onPressed: _busy ? null : _toggleVoice,
+                icon: Icon(
+                  isMicActive
+                      ? Icons.stop_circle_outlined
+                      : Icons.mic_none_rounded,
+                  color: isMicActive ? AppColors.red : AppColors.teal,
+                ),
+              ),
+            ),
+          ),
           const SizedBox(height: 7),
-          Text(_answer!, style: const TextStyle(fontSize: 12, color: AppColors.ink, height: 1.5)),
-          if (_evidenceUsed.isNotEmpty) ...[
-            const SizedBox(height: 9),
-            const Text('From your document', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: AppColors.navy)),
-            const SizedBox(height: 4),
-            ..._evidenceUsed.take(4).map((item) => Padding(
-              padding: const EdgeInsets.only(bottom: 3),
-              child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                const Icon(Icons.description_outlined, size: 13, color: AppColors.teal),
-                const SizedBox(width: 5),
-                Expanded(child: Text(item, style: const TextStyle(fontSize: 10, color: AppColors.muted, height: 1.35))),
-              ]),
-            )),
-          ],
-          if (_replyModel != null && _replyModel!.isNotEmpty) ...[
-            const SizedBox(height: 5),
-            Text('Model: $_replyModel', style: const TextStyle(fontSize: 9, color: AppColors.muted)),
-          ],
+          Wrap(
+            spacing: 6,
+            runSpacing: 4,
+            children: [
+              ActionChip(
+                label: const Text('Kitna approve hua?'),
+                onPressed: _busy
+                    ? null
+                    : () =>
+                          _fillExample('Mera claim kitne ka approve hua hai?'),
+              ),
+              ActionChip(
+                label: const Text('Claim status kya hai?'),
+                onPressed: _busy
+                    ? null
+                    : () => _fillExample('Mera claim ka status kya hai?'),
+              ),
+              ActionChip(
+                label: const Text('Kaun se documents chahiye?'),
+                onPressed: _busy
+                    ? null
+                    : () => _fillExample('Kaun se documents chahiye?'),
+              ),
+              ActionChip(
+                label: const Text('Last date kya hai?'),
+                onPressed: _busy
+                    ? null
+                    : () => _fillExample(
+                        'Documents submit karne ki last date kya hai?',
+                      ),
+              ),
+            ],
+          ),
           const SizedBox(height: 10),
-          Align(alignment: Alignment.centerLeft, child: OutlinedButton.icon(onPressed: () => widget.onNavigate(_actionIndex), icon: const Icon(Icons.arrow_forward, size: 16), label: Text(_actionLabel), style: OutlinedButton.styleFrom(minimumSize: const Size(0, 40)))),
-        ])),
-      ],
-      const SizedBox(height: 8),
-      const Text('Private mode does not upload audio from Sathi. Device speech recognition is provided by your phone and its offline/network behaviour depends on Android/iOS settings. Cloud voice transcription is only used in General information mode after separate consent. Do not speak Aadhaar, policy numbers or other sensitive identifiers.', style: TextStyle(color: AppColors.muted, fontSize: 10, height: 1.45)),
-    ]));
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              onPressed: _busy ? null : _askSathi,
+              icon: _busy
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : const Icon(Icons.auto_awesome),
+              label: Text(_busy ? 'Please wait…' : 'Ask Sathi'),
+            ),
+          ),
+          if (_statusMessage != null) ...[
+            const SizedBox(height: 8),
+            Text(
+              _statusMessage!,
+              style: const TextStyle(
+                fontSize: 10,
+                color: AppColors.muted,
+                height: 1.4,
+              ),
+            ),
+          ],
+          if (_answer != null) ...[
+            const SizedBox(height: 12),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(13),
+              decoration: BoxDecoration(
+                color: AppColors.mint,
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const Icon(
+                        Icons.lightbulb_outline,
+                        size: 18,
+                        color: AppColors.tealDark,
+                      ),
+                      const SizedBox(width: 6),
+                      const Expanded(
+                        child: Text(
+                          'Sathi’s answer',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w900,
+                            color: AppColors.tealDark,
+                          ),
+                        ),
+                      ),
+                      _modeBadge(_replyMode),
+                    ],
+                  ),
+                  const SizedBox(height: 7),
+                  Text(
+                    _answer!,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: AppColors.ink,
+                      height: 1.5,
+                    ),
+                  ),
+                  if (_evidenceUsed.isNotEmpty) ...[
+                    const SizedBox(height: 9),
+                    const Text(
+                      'From your document',
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w800,
+                        color: AppColors.navy,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    ..._evidenceUsed
+                        .take(4)
+                        .map(
+                          (item) => Padding(
+                            padding: const EdgeInsets.only(bottom: 3),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Icon(
+                                  Icons.description_outlined,
+                                  size: 13,
+                                  color: AppColors.teal,
+                                ),
+                                const SizedBox(width: 5),
+                                Expanded(
+                                  child: Text(
+                                    item,
+                                    style: const TextStyle(
+                                      fontSize: 10,
+                                      color: AppColors.muted,
+                                      height: 1.35,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                  ],
+                  if (_replyModel != null && _replyModel!.isNotEmpty) ...[
+                    const SizedBox(height: 5),
+                    Text(
+                      'Model: $_replyModel',
+                      style: const TextStyle(
+                        fontSize: 9,
+                        color: AppColors.muted,
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 10),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: OutlinedButton.icon(
+                      onPressed: () => widget.onNavigate(_actionIndex),
+                      icon: const Icon(Icons.arrow_forward, size: 16),
+                      label: Text(_actionLabel),
+                      style: OutlinedButton.styleFrom(
+                        minimumSize: const Size(0, 40),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+          const SizedBox(height: 8),
+          const Text(
+            'Private mode does not upload audio from Sathi. Device speech recognition is provided by your phone and its offline/network behaviour depends on Android/iOS settings. Cloud voice transcription is only used in General information mode after separate consent. Do not speak Aadhaar, policy numbers or other sensitive identifiers.',
+            style: TextStyle(
+              color: AppColors.muted,
+              fontSize: 10,
+              height: 1.45,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   Widget _queryModeOption({
@@ -650,11 +948,11 @@ class _SathiAssistantCardState extends State<SathiAssistantCard> {
           onTap: !enabled || selected
               ? null
               : () => setState(() {
-                    _queryMode = mode;
-                    _statusMessage = mode == SathiQueryMode.privateLocal
-                        ? 'Sathi will look through the documents you added.'
-                        : 'General information mode selected. Your saved documents will not be shared.';
-                  }),
+                  _queryMode = mode;
+                  _statusMessage = mode == SathiQueryMode.privateLocal
+                      ? 'Sathi will look through the documents you added.'
+                      : 'General information mode selected. Your saved documents will not be shared.';
+                }),
           child: Container(
             width: double.infinity,
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
@@ -724,16 +1022,31 @@ class _SathiAssistantCardState extends State<SathiAssistantCard> {
   Widget _modeBadge(String? mode) {
     final (label, color) = switch (mode) {
       'gemini_agent' => ('GENERAL HELP', AppColors.tealDark),
-      'local_document_fact' || 'local_document_search' || 'on_device_rag' => ('FROM YOUR DOCUMENT', AppColors.green),
-      'local_document_fact_not_found' || 'local_fact_not_found' || 'local_private_no_match' || 'local_no_match' => ('NOT FOUND IN DOCUMENT', AppColors.amber),
+      'local_document_fact' ||
+      'local_document_search' ||
+      'on_device_rag' => ('FROM YOUR DOCUMENT', AppColors.green),
+      'local_document_fact_not_found' ||
+      'local_fact_not_found' ||
+      'local_private_no_match' ||
+      'local_no_match' => ('NOT FOUND IN DOCUMENT', AppColors.amber),
       'on_device_rag_error' => ('TRY AGAIN', AppColors.amber),
       'local_faq' => ('HELPFUL GUIDE', AppColors.tealDark),
       _ => ('SATHI', AppColors.tealDark),
     };
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
-      decoration: BoxDecoration(color: color.withValues(alpha: 0.10), borderRadius: BorderRadius.circular(20)),
-      child: Text(label, style: TextStyle(color: color, fontSize: 8, fontWeight: FontWeight.w900)),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: color,
+          fontSize: 8,
+          fontWeight: FontWeight.w900,
+        ),
+      ),
     );
   }
 }

@@ -4,7 +4,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 /// or as a substitute for server-side consent verification.
 class PrivacySettingsStore {
   PrivacySettingsStore({FlutterSecureStorage? storage})
-      : _storage = storage ?? const FlutterSecureStorage();
+    : _storage = storage ?? const FlutterSecureStorage();
 
   static const _cloudConsentKey = 'sathi_allow_redacted_cloud_analysis';
   static const _voiceConsentKey = 'sathi_allow_cloud_voice_transcription';

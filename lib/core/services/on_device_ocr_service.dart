@@ -19,10 +19,10 @@ class OnDeviceOcrService {
 /// once per upload and released after the last page has been processed.
 class OnDeviceOcrSession {
   OnDeviceOcrSession._()
-      : _recognizers = [
-          TextRecognizer(script: TextRecognitionScript.latin),
-          TextRecognizer(script: TextRecognitionScript.devanagiri),
-        ];
+    : _recognizers = [
+        TextRecognizer(script: TextRecognitionScript.latin),
+        TextRecognizer(script: TextRecognitionScript.devanagiri),
+      ];
 
   final List<TextRecognizer> _recognizers;
   bool _closed = false;

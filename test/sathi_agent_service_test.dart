@@ -16,28 +16,40 @@ void main() {
       );
     });
 
-    test('claim context cannot be sent to online general-information API', () async {
-      expect(
-        () => service.ask(
-          message: 'What does co-pay mean?',
-          language: SathiLanguageMode.english,
-          allowCloudAnalysis: true,
-          claimContext: {'documentTexts': [{'title': 'Decision letter', 'text': 'private text'}]},
-        ),
-        throwsA(isA<StateError>()),
-      );
-    });
+    test(
+      'claim context cannot be sent to online general-information API',
+      () async {
+        expect(
+          () => service.ask(
+            message: 'What does co-pay mean?',
+            language: SathiLanguageMode.english,
+            allowCloudAnalysis: true,
+            claimContext: {
+              'documentTexts': [
+                {'title': 'Decision letter', 'text': 'private text'},
+              ],
+            },
+          ),
+          throwsA(isA<StateError>()),
+        );
+      },
+    );
 
-    test('chat history cannot be sent to online general-information API', () async {
-      expect(
-        () => service.ask(
-          message: 'What does co-pay mean?',
-          language: SathiLanguageMode.english,
-          allowCloudAnalysis: true,
-          chatHistory: const [{'role': 'user', 'content': 'private question'}],
-        ),
-        throwsA(isA<StateError>()),
-      );
-    });
+    test(
+      'chat history cannot be sent to online general-information API',
+      () async {
+        expect(
+          () => service.ask(
+            message: 'What does co-pay mean?',
+            language: SathiLanguageMode.english,
+            allowCloudAnalysis: true,
+            chatHistory: const [
+              {'role': 'user', 'content': 'private question'},
+            ],
+          ),
+          throwsA(isA<StateError>()),
+        );
+      },
+    );
   });
 }

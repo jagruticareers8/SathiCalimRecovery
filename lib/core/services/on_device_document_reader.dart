@@ -7,7 +7,8 @@ import 'package:pdfrx/pdfrx.dart';
 
 import 'on_device_ocr_service.dart';
 
-typedef DocumentReadProgress = void Function(int completedPages, int totalPages);
+typedef DocumentReadProgress =
+    void Function(int completedPages, int totalPages);
 
 class DocumentReadResult {
   const DocumentReadResult({
@@ -33,7 +34,7 @@ class DocumentReadResult {
 /// caller is responsible for deleting that file after this method completes.
 class OnDeviceDocumentReader {
   OnDeviceDocumentReader({OnDeviceOcrService? ocrService})
-      : _ocrService = ocrService ?? OnDeviceOcrService();
+    : _ocrService = ocrService ?? OnDeviceOcrService();
 
   final OnDeviceOcrService _ocrService;
   static Future<void>? _pdfInitialization;
@@ -114,14 +115,18 @@ class OnDeviceDocumentReader {
             );
 
             if (renderedPage != null) {
-              final raster = renderedPage.createImageNF(pixelSizeThreshold: 2200);
+              final raster = renderedPage.createImageNF(
+                pixelSizeThreshold: 2200,
+              );
               final pngBytes = image_lib.encodePng(raster);
               temporaryPng = File(
                 '${temporaryDirectory.path}/sathi_pdf_${DateTime.now().microsecondsSinceEpoch}_$index.png',
               );
               await temporaryPng.writeAsBytes(pngBytes, flush: true);
               ocrSession ??= await _ocrService.openSession();
-              final imageText = await ocrSession.readImageText(temporaryPng.path);
+              final imageText = await ocrSession.readImageText(
+                temporaryPng.path,
+              );
               pageText = _mergePageText(pageText, imageText);
             }
           } catch (_) {

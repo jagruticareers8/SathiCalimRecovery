@@ -11,7 +11,10 @@ import '../../domain/models/claim_models.dart';
 /// Creates the remote claim-analysis adapter for integrations that are explicitly
 /// non-private. Personal documents use the encrypted local vault only.
 ClaimAnalysisService createClaimAnalysisService() {
-  const baseUrl = String.fromEnvironment('SATHI_API_BASE_URL', defaultValue: '');
+  const baseUrl = String.fromEnvironment(
+    'SATHI_API_BASE_URL',
+    defaultValue: '',
+  );
   return ApiClaimAnalysisService(baseUrl: baseUrl);
 }
 
@@ -20,8 +23,8 @@ ClaimAnalysisService createClaimAnalysisService() {
 /// documents, OCR, or claim analysis.
 class ClaimCubit extends Cubit<ClaimState> {
   ClaimCubit(ClaimAnalysisService _, {LocalPrivateVault? vault})
-      : _vault = vault ?? LocalPrivateVault(),
-        super(ClaimState.empty()) {
+    : _vault = vault ?? LocalPrivateVault(),
+      super(ClaimState.empty()) {
     _ready = _restoreLocalState();
   }
 
@@ -44,51 +47,60 @@ class ClaimCubit extends Cubit<ClaimState> {
           final fileName = (row['fileName'] ?? 'Document').toString();
           final uploadedAtText = row['uploadedAt'] as String?;
           final extractedText = row['extractedText'] as String?;
-          restoredDocuments.add(ClaimDocument(
-            id: id,
-            title: (row['title'] ?? fileName).toString(),
-            description: (row['description'] ?? 'Added from your phone').toString(),
-            required: row['required'] == true,
-            uploaded: true,
-            fileName: fileName,
-            uploadedAt: uploadedAtText == null
-                ? null
-                : DateTime.tryParse(uploadedAtText),
-            // Never restore a temporary path from an earlier app session.
-            localPath: null,
-            extractedText: extractedText,
-            storedLocally: row['storedLocally'] == true,
-            readFailed: row['readFailed'] == true ||
-                (extractedText ?? '').trim().isEmpty,
-          ));
+          restoredDocuments.add(
+            ClaimDocument(
+              id: id,
+              title: (row['title'] ?? fileName).toString(),
+              description: (row['description'] ?? 'Added from your phone')
+                  .toString(),
+              required: row['required'] == true,
+              uploaded: true,
+              fileName: fileName,
+              uploadedAt: uploadedAtText == null
+                  ? null
+                  : DateTime.tryParse(uploadedAtText),
+              // Never restore a temporary path from an earlier app session.
+              localPath: null,
+              extractedText: extractedText,
+              storedLocally: row['storedLocally'] == true,
+              readFailed:
+                  row['readFailed'] == true ||
+                  (extractedText ?? '').trim().isEmpty,
+            ),
+          );
         }
       }
-      restoredDocuments.sort((a, b) =>
-          (a.uploadedAt ?? DateTime.fromMillisecondsSinceEpoch(0))
-              .compareTo(b.uploadedAt ?? DateTime.fromMillisecondsSinceEpoch(0)));
+      restoredDocuments.sort(
+        (a, b) => (a.uploadedAt ?? DateTime.fromMillisecondsSinceEpoch(0))
+            .compareTo(b.uploadedAt ?? DateTime.fromMillisecondsSinceEpoch(0)),
+      );
 
       final restoredTimeline = <ClaimTimelineEvent>[];
       final savedTimeline = saved['timeline'];
       if (savedTimeline is List) {
         for (final row in savedTimeline) {
           if (row is! Map) continue;
-          restoredTimeline.add(ClaimTimelineEvent(
-            title: (row['title'] ?? '').toString(),
-            description: (row['description'] ?? '').toString(),
-            dateLabel: (row['dateLabel'] ?? '').toString(),
-            done: row['done'] == true,
-            isCurrent: row['isCurrent'] == true,
-          ));
+          restoredTimeline.add(
+            ClaimTimelineEvent(
+              title: (row['title'] ?? '').toString(),
+              description: (row['description'] ?? '').toString(),
+              dateLabel: (row['dateLabel'] ?? '').toString(),
+              done: row['done'] == true,
+              isCurrent: row['isCurrent'] == true,
+            ),
+          );
         }
       }
       if (isClosed) return;
-      emit(state.copyWith(
-        documents: restoredDocuments,
-        timeline: restoredTimeline,
-        appealDraft: (saved['appealDraft'] ?? '').toString(),
-        reconsiderationMarkedSubmitted:
-            saved['reconsiderationMarkedSubmitted'] == true,
-      ));
+      emit(
+        state.copyWith(
+          documents: restoredDocuments,
+          timeline: restoredTimeline,
+          appealDraft: (saved['appealDraft'] ?? '').toString(),
+          reconsiderationMarkedSubmitted:
+              saved['reconsiderationMarkedSubmitted'] == true,
+        ),
+      );
     } catch (_) {
       // Do not silently overwrite encrypted data if decryption fails. This
       // session remains usable but starts with empty in-memory state.
@@ -96,31 +108,39 @@ class ClaimCubit extends Cubit<ClaimState> {
   }
 
   Map<String, dynamic> _snapshotFor(ClaimState current) => {
-        'version': 1,
-        'documents': current.documents.map((document) => <String, dynamic>{
-              'id': document.id,
-              'title': document.title,
-              'description': document.description,
-              'required': document.required,
-              'uploaded': document.uploaded,
-              'fileName': document.fileName,
-              'uploadedAt': document.uploadedAt?.toIso8601String(),
-              'storedLocally': document.storedLocally,
-              // The OCR text is PII-masked before it reaches state and this
-              // entire snapshot is encrypted by LocalPrivateVault.
-              'extractedText': document.extractedText,
-              'readFailed': document.readFailed,
-            }).toList(),
-        'timeline': current.timeline.map((event) => <String, dynamic>{
-              'title': event.title,
-              'description': event.description,
-              'dateLabel': event.dateLabel,
-              'done': event.done,
-              'isCurrent': event.isCurrent,
-            }).toList(),
-        'appealDraft': current.appealDraft,
-        'reconsiderationMarkedSubmitted': current.reconsiderationMarkedSubmitted,
-      };
+    'version': 1,
+    'documents': current.documents
+        .map(
+          (document) => <String, dynamic>{
+            'id': document.id,
+            'title': document.title,
+            'description': document.description,
+            'required': document.required,
+            'uploaded': document.uploaded,
+            'fileName': document.fileName,
+            'uploadedAt': document.uploadedAt?.toIso8601String(),
+            'storedLocally': document.storedLocally,
+            // The OCR text is PII-masked before it reaches state and this
+            // entire snapshot is encrypted by LocalPrivateVault.
+            'extractedText': document.extractedText,
+            'readFailed': document.readFailed,
+          },
+        )
+        .toList(),
+    'timeline': current.timeline
+        .map(
+          (event) => <String, dynamic>{
+            'title': event.title,
+            'description': event.description,
+            'dateLabel': event.dateLabel,
+            'done': event.done,
+            'isCurrent': event.isCurrent,
+          },
+        )
+        .toList(),
+    'appealDraft': current.appealDraft,
+    'reconsiderationMarkedSubmitted': current.reconsiderationMarkedSubmitted,
+  };
 
   Future<void> _persistLocalState() async {
     try {
@@ -160,20 +180,23 @@ class ClaimCubit extends Cubit<ClaimState> {
       ...state.documents.where((item) => item.id != id),
       document,
     ];
-    emit(state.copyWith(
-      documents: updated,
-      timeline: [
-        ClaimTimelineEvent(
-          title: 'Document added',
-          description: 'A copy of $safeName was saved privately on this phone.',
-          dateLabel: 'Just now',
-          done: true,
-        ),
-        ...state.timeline.map((event) => event.copyWith(isCurrent: false)),
-      ],
-      clearAnalysis: true,
-      clearAnalysisError: true,
-    ));
+    emit(
+      state.copyWith(
+        documents: updated,
+        timeline: [
+          ClaimTimelineEvent(
+            title: 'Document added',
+            description:
+                'A copy of $safeName was saved privately on this phone.',
+            dateLabel: 'Just now',
+            done: true,
+          ),
+          ...state.timeline.map((event) => event.copyWith(isCurrent: false)),
+        ],
+        clearAnalysis: true,
+        clearAnalysisError: true,
+      ),
+    );
     await _persistLocalState();
   }
 
@@ -190,14 +213,22 @@ class ClaimCubit extends Cubit<ClaimState> {
   /// Compatibility wrapper for callers that still have a readable file path.
   /// New picker flows should use [attachDocumentBytes], because picker paths can
   /// be temporary or unavailable for cloud-backed files.
-  Future<void> attachDocument(String id, String fileName, {String? localPath}) async {
+  Future<void> attachDocument(
+    String id,
+    String fileName, {
+    String? localPath,
+  }) async {
     await _ready;
     if (localPath == null || localPath.trim().isEmpty) {
-      throw StateError('The selected file is no longer available. Please choose it again.');
+      throw StateError(
+        'The selected file is no longer available. Please choose it again.',
+      );
     }
     final file = File(localPath);
     if (!await file.exists()) {
-      throw StateError('The selected file is no longer available. Please choose it again.');
+      throw StateError(
+        'The selected file is no longer available. Please choose it again.',
+      );
     }
     await attachDocumentBytes(
       id: id,
@@ -222,13 +253,20 @@ class ClaimCubit extends Cubit<ClaimState> {
     await _ready;
     ClaimDocument? document;
     for (final item in state.documents) {
-      if (item.id == id) { document = item; break; }
+      if (item.id == id) {
+        document = item;
+        break;
+      }
     }
     if (document == null) return null;
     final currentPath = document.localPath;
-    if (currentPath != null && await File(currentPath).exists()) return currentPath;
+    if (currentPath != null && await File(currentPath).exists())
+      return currentPath;
     if (!document.storedLocally || document.fileName == null) return null;
-    return _vault.materializeAttachmentForOcr(id: id, fileName: document.fileName!);
+    return _vault.materializeAttachmentForOcr(
+      id: id,
+      fileName: document.fileName!,
+    );
   }
 
   /// Save only PII-masked OCR text. The text is encrypted at rest and searchable
@@ -252,25 +290,43 @@ class ClaimCubit extends Cubit<ClaimState> {
     await _ready;
     emit(state.copyWith(isAnalyzing: true, clearAnalysisError: true));
     try {
-      final readable = state.documents.where((d) => (d.extractedText ?? '').trim().isNotEmpty).toList();
-      final noText = state.documents.where((d) => d.uploaded && (d.extractedText ?? '').trim().isEmpty).map((d) => d.title).toList();
+      final readable = state.documents
+          .where((d) => (d.extractedText ?? '').trim().isNotEmpty)
+          .toList();
+      final noText = state.documents
+          .where((d) => d.uploaded && (d.extractedText ?? '').trim().isEmpty)
+          .map((d) => d.title)
+          .toList();
       final result = ClaimAnalysis(
         summary: readable.isEmpty
             ? 'No readable document text was found yet. Add a clearer document and Sathi will try reading it again. No claim data was sent online.'
             : 'Sathi found readable text in ${readable.length} locally saved document(s). This is a local document-readiness check only; it does not verify coverage, claim status, or the insurer’s decision.',
         missingDocuments: noText,
         nextSteps: readable.isEmpty
-            ? const ['Add a clear insurance letter or bill.', 'Ask Sathi once the document is ready.']
-            : const ['Search the saved document text for the insurer’s reason.', 'Compare the stated reason with the supporting records.', 'Confirm exact requirements with the insurer through its official channel.'],
-        disclaimer: 'OFFLINE LOCAL CHECK · No OCR text or claim details were sent to a server. This is not a coverage decision or a guarantee of claim recovery.',
+            ? const [
+                'Add a clear insurance letter or bill.',
+                'Ask Sathi once the document is ready.',
+              ]
+            : const [
+                'Search the saved document text for the insurer’s reason.',
+                'Compare the stated reason with the supporting records.',
+                'Confirm exact requirements with the insurer through its official channel.',
+              ],
+        disclaimer:
+            'OFFLINE LOCAL CHECK · No OCR text or claim details were sent to a server. This is not a coverage decision or a guarantee of claim recovery.',
         evidenceUsed: readable.map((document) => document.title).toList(),
       );
       emit(state.copyWith(analysis: result, isAnalyzing: false));
     } catch (error) {
-      emit(state.copyWith(isAnalyzing: false, analysisError: 'Local document check failed. No document data was sent online. ${error.runtimeType}'));
+      emit(
+        state.copyWith(
+          isAnalyzing: false,
+          analysisError:
+              'Local document check failed. No document data was sent online. ${error.runtimeType}',
+        ),
+      );
     }
   }
-
 
   /// Erases the encrypted local vault and resets all app-owned personal data.
   /// This does not delete the original files in Photos/Downloads.
@@ -288,19 +344,22 @@ class ClaimCubit extends Cubit<ClaimState> {
 
   void markReconsiderationSubmitted() {
     if (state.reconsiderationMarkedSubmitted) return;
-    emit(state.copyWith(
-      reconsiderationMarkedSubmitted: true,
-      timeline: [
-        const ClaimTimelineEvent(
-          title: 'Reconsideration marked by you',
-          description: 'You recorded that you submitted the draft through the insurer’s official channel. Sathi has not sent it or verified receipt.',
-          dateLabel: 'Just now',
-          done: true,
-          isCurrent: true,
-        ),
-        ...state.timeline.map((e) => e.copyWith(isCurrent: false)),
-      ],
-    ));
+    emit(
+      state.copyWith(
+        reconsiderationMarkedSubmitted: true,
+        timeline: [
+          const ClaimTimelineEvent(
+            title: 'Reconsideration marked by you',
+            description:
+                'You recorded that you submitted the draft through the insurer’s official channel. Sathi has not sent it or verified receipt.',
+            dateLabel: 'Just now',
+            done: true,
+            isCurrent: true,
+          ),
+          ...state.timeline.map((e) => e.copyWith(isCurrent: false)),
+        ],
+      ),
+    );
     unawaited(_persistLocalState());
   }
 }

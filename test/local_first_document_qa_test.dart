@@ -36,11 +36,11 @@ void main() {
   });
 
   Future<SathiAgentReply> ask(String question) => service.ask(
-        message: question,
-        language: SathiLanguageMode.hinglish,
-        allowCloudAnalysis: false,
-        queryMode: SathiQueryMode.privateLocal,
-      );
+    message: question,
+    language: SathiLanguageMode.hinglish,
+    allowCloudAnalysis: false,
+    queryMode: SathiQueryMode.privateLocal,
+  );
 
   test('answers claim amount using varied Hinglish wording locally', () async {
     final reply = await ask('Mera claim kitne ka tha?');
@@ -61,10 +61,12 @@ void main() {
     expect(reply.mode, 'local_document_fact');
   });
 
-  test('extracts status value when OCR table rows are reordered with the synthetic header', () async {
-    final noisyService = LocalFirstSathiAgentService(
-      cloudService: SathiAgentService(baseUrl: ''),
-      vault: _MemoryVault('''
+  test(
+    'extracts status value when OCR table rows are reordered with the synthetic header',
+    () async {
+      final noisyService = LocalFirstSathiAgentService(
+        cloudService: SathiAgentService(baseUrl: ''),
+        vault: _MemoryVault('''
 SAMPLE HEALTH ASSURANCE
 SYNTHETIC TEST DOCUMENT | NOT A REAL INSURER LETTER | SATHI OCR + LOCAL Q&A TEST
 Amount pending review | Rs. 33,000 | Current status
@@ -72,37 +74,57 @@ Partially approved - more information needed
 Reason given in this synthetic example
 The remaining amount has not been finally decided.
 '''),
-    );
-    final reply = await noisyService.ask(
-      message: 'Mera claim status kya hai?',
-      language: SathiLanguageMode.hinglish,
-      allowCloudAnalysis: false,
-      queryMode: SathiQueryMode.privateLocal,
-    );
+      );
+      final reply = await noisyService.ask(
+        message: 'Mera claim status kya hai?',
+        language: SathiLanguageMode.hinglish,
+        allowCloudAnalysis: false,
+        queryMode: SathiQueryMode.privateLocal,
+      );
 
-    expect(reply.answer.toLowerCase(), contains('partially approved'));
-    expect(reply.answer.toLowerCase(), contains('more information needed'));
-    expect(reply.answer, isNot(contains('SYNTHETIC TEST DOCUMENT | NOT A REAL INSURER LETTER | SATHI OCR')));
-    expect(reply.mode, 'local_document_fact');
-    expect(reply.evidenceUsed.single, contains('Current status'));
-  });
+      expect(reply.answer.toLowerCase(), contains('partially approved'));
+      expect(reply.answer.toLowerCase(), contains('more information needed'));
+      expect(
+        reply.answer,
+        isNot(
+          contains(
+            'SYNTHETIC TEST DOCUMENT | NOT A REAL INSURER LETTER | SATHI OCR',
+          ),
+        ),
+      );
+      expect(reply.mode, 'local_document_fact');
+      expect(reply.evidenceUsed.single, contains('Current status'));
+    },
+  );
 
-  test('does not answer claim status with header labels when OCR has no status value', () async {
-    final noisyService = LocalFirstSathiAgentService(
-      cloudService: SathiAgentService(baseUrl: ''),
-      vault: _MemoryVault('SYNTHETIC TEST DOCUMENT | NOT A REAL INSURER LETTER | Current status | SATHI OCR + LOCAL Q&A TEST'),
-    );
-    final reply = await noisyService.ask(
-      message: 'Mera claim status kya hai?',
-      language: SathiLanguageMode.hinglish,
-      allowCloudAnalysis: false,
-      queryMode: SathiQueryMode.privateLocal,
-    );
+  test(
+    'does not answer claim status with header labels when OCR has no status value',
+    () async {
+      final noisyService = LocalFirstSathiAgentService(
+        cloudService: SathiAgentService(baseUrl: ''),
+        vault: _MemoryVault(
+          'SYNTHETIC TEST DOCUMENT | NOT A REAL INSURER LETTER | Current status | SATHI OCR + LOCAL Q&A TEST',
+        ),
+      );
+      final reply = await noisyService.ask(
+        message: 'Mera claim status kya hai?',
+        language: SathiLanguageMode.hinglish,
+        allowCloudAnalysis: false,
+        queryMode: SathiQueryMode.privateLocal,
+      );
 
-    expect(reply.mode, 'local_fact_not_found');
-    expect(reply.answer.toLowerCase(), contains('claim status/decision'));
-    expect(reply.answer, isNot(contains('SYNTHETIC TEST DOCUMENT | NOT A REAL INSURER LETTER | Current status')));
-  });
+      expect(reply.mode, 'local_fact_not_found');
+      expect(reply.answer.toLowerCase(), contains('claim status/decision'));
+      expect(
+        reply.answer,
+        isNot(
+          contains(
+            'SYNTHETIC TEST DOCUMENT | NOT A REAL INSURER LETTER | Current status',
+          ),
+        ),
+      );
+    },
+  );
 
   test('answers required documents in English', () async {
     final reply = await ask('Which documents do I need to submit?');
@@ -110,11 +132,14 @@ The remaining amount has not been finally decided.
     expect(reply.answer.toLowerCase(), contains('diagnostic report'));
   });
 
-  test('finds appeal deadline even though question contains claim words', () async {
-    final reply = await ask('Appeal kitne din mein submit karni hai?');
-    expect(reply.answer.toLowerCase(), contains('within 30 days'));
-    expect(reply.answer.toLowerCase(), contains('deadline'));
-  });
+  test(
+    'finds appeal deadline even though question contains claim words',
+    () async {
+      final reply = await ask('Appeal kitne din mein submit karni hai?');
+      expect(reply.answer.toLowerCase(), contains('within 30 days'));
+      expect(reply.answer.toLowerCase(), contains('deadline'));
+    },
+  );
 
   test('finds policy reference locally', () async {
     final reply = await ask('Mera policy number kya hai?');
@@ -131,17 +156,25 @@ The remaining amount has not been finally decided.
     expect(reply.answer.toLowerCase(), contains('viral fever'));
   });
 
-  test('never sends private question or OCR to cloud when local evidence is found', () async {
-    final reply = await ask('Tell me the claim rejection reason in my letter');
-    expect(reply.notice, contains('No question or document was sent online'));
-    expect(reply.mode, 'local_document_fact');
-  });
+  test(
+    'never sends private question or OCR to cloud when local evidence is found',
+    () async {
+      final reply = await ask(
+        'Tell me the claim rejection reason in my letter',
+      );
+      expect(reply.notice, contains('No question or document was sent online'));
+      expect(reply.mode, 'local_document_fact');
+    },
+  );
 
-  test('understands alternate English wording for the claimed amount', () async {
-    final reply = await ask('How much money was originally requested?');
-    expect(reply.answer, contains('₹85,000'));
-    expect(reply.notice, contains('No question or document was sent online'));
-  });
+  test(
+    'understands alternate English wording for the claimed amount',
+    () async {
+      final reply = await ask('How much money was originally requested?');
+      expect(reply.answer, contains('₹85,000'));
+      expect(reply.notice, contains('No question or document was sent online'));
+    },
+  );
 
   test('understands approval phrasing without the word status', () async {
     final reply = await ask('Has my claim been approved yet?');
@@ -156,7 +189,9 @@ The remaining amount has not been finally decided.
   });
 
   test('understands final date wording for a submission deadline', () async {
-    final reply = await ask('What is the final date to submit supporting documents?');
+    final reply = await ask(
+      'What is the final date to submit supporting documents?',
+    );
     expect(reply.answer.toLowerCase(), contains('within 30 days'));
     expect(reply.intent, 'deadline');
   });
@@ -168,34 +203,48 @@ The remaining amount has not been finally decided.
   });
 
   test('summarises when user asks for key points', () async {
-    final reply = await ask('Tell me the important points in this decision letter');
+    final reply = await ask(
+      'Tell me the important points in this decision letter',
+    );
     expect(reply.answer.toLowerCase(), contains('saved document'));
     expect(reply.answer.toLowerCase(), contains('itemised hospital bill'));
     expect(reply.intent, 'summary');
   });
 
-  test('creates an editable reconsideration draft from local evidence', () async {
-    final reply = await ask('Please write an appeal letter for me');
-    expect(reply.draft.toLowerCase(), contains('request for review'));
-    expect(reply.draft.toLowerCase(), contains('itemised hospital bill'));
-    expect(reply.answer.toLowerCase(), contains('draft'));
-    expect(reply.mode, 'local_document_fact');
-  });
+  test(
+    'creates an editable reconsideration draft from local evidence',
+    () async {
+      final reply = await ask('Please write an appeal letter for me');
+      expect(reply.draft.toLowerCase(), contains('request for review'));
+      expect(reply.draft.toLowerCase(), contains('itemised hospital bill'));
+      expect(reply.answer.toLowerCase(), contains('draft'));
+      expect(reply.mode, 'local_document_fact');
+    },
+  );
 
-  test('does not infer coverage when no policy coverage clause is present', () async {
-    final reply = await ask('Does my policy cover viral fever treatment?');
-    expect(reply.mode, 'local_fact_not_found');
-    expect(reply.answer.toLowerCase(), contains('coverage clause'));
-    expect(reply.notice, contains('No cloud request was made'));
-  });
+  test(
+    'does not infer coverage when no policy coverage clause is present',
+    () async {
+      final reply = await ask('Does my policy cover viral fever treatment?');
+      expect(reply.mode, 'local_fact_not_found');
+      expect(reply.answer.toLowerCase(), contains('coverage clause'));
+      expect(reply.notice, contains('No cloud request was made'));
+    },
+  );
 
-  test('returns an evidence-based search for an unclassified document question', () async {
-    final reply = await ask('What does the document say about final review?');
-    expect(reply.mode, 'local_document_search');
-    expect(reply.answer.toLowerCase(), contains('relevant text'));
-    expect(reply.evidenceUsed, isNotEmpty);
-    expect(reply.notice, contains('No document text or question was sent online'));
-  });
+  test(
+    'returns an evidence-based search for an unclassified document question',
+    () async {
+      final reply = await ask('What does the document say about final review?');
+      expect(reply.mode, 'local_document_search');
+      expect(reply.answer.toLowerCase(), contains('relevant text'));
+      expect(reply.evidenceUsed, isNotEmpty);
+      expect(
+        reply.notice,
+        contains('No document text or question was sent online'),
+      );
+    },
+  );
 }
 
 class _MemoryVault implements LocalPrivateVault {
@@ -204,11 +253,11 @@ class _MemoryVault implements LocalPrivateVault {
 
   @override
   Future<Map<String, dynamic>> readSnapshot() async => {
-        'version': 1,
-        'documents': [
-          {'title': 'Synthetic claim decision letter', 'extractedText': text}
-        ],
-      };
+    'version': 1,
+    'documents': [
+      {'title': 'Synthetic claim decision letter', 'extractedText': text},
+    ],
+  };
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);

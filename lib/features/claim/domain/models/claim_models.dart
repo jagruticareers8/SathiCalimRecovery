@@ -20,13 +20,17 @@ class ClaimDocument {
   final bool uploaded;
   final String? fileName;
   final DateTime? uploadedAt;
+
   /// Ephemeral on-device path. The file itself is not sent by the assistant.
   final String? localPath;
+
   /// PII-masked OCR text retained for encrypted on-device storage and local search.
   /// This text is never attached to an online general-information request.
   final String? extractedText;
+
   /// True when an encrypted app-private copy is stored in Sathi local vault.
   final bool storedLocally;
+
   /// True when Sathi could not read enough text from this document.
   final bool readFailed;
 
@@ -50,9 +54,15 @@ class ClaimDocument {
       uploaded: uploaded ?? this.uploaded,
       fileName: clearAttachment ? null : (fileName ?? this.fileName),
       uploadedAt: clearAttachment ? null : (uploadedAt ?? this.uploadedAt),
-      localPath: clearAttachment ? null : (clearLocalPath ? localPath : (localPath ?? this.localPath)),
-      extractedText: clearAttachment || clearExtractedText ? null : (extractedText ?? this.extractedText),
-      storedLocally: clearAttachment ? false : (storedLocally ?? this.storedLocally),
+      localPath: clearAttachment
+          ? null
+          : (clearLocalPath ? localPath : (localPath ?? this.localPath)),
+      extractedText: clearAttachment || clearExtractedText
+          ? null
+          : (extractedText ?? this.extractedText),
+      storedLocally: clearAttachment
+          ? false
+          : (storedLocally ?? this.storedLocally),
       readFailed: clearAttachment ? false : (readFailed ?? this.readFailed),
     );
   }
@@ -73,7 +83,13 @@ class ClaimTimelineEvent {
   final bool done;
   final bool isCurrent;
 
-  ClaimTimelineEvent copyWith({String? title, String? description, String? dateLabel, bool? done, bool? isCurrent}) {
+  ClaimTimelineEvent copyWith({
+    String? title,
+    String? description,
+    String? dateLabel,
+    bool? done,
+    bool? isCurrent,
+  }) {
     return ClaimTimelineEvent(
       title: title ?? this.title,
       description: description ?? this.description,
@@ -98,11 +114,11 @@ class ClaimCitation {
   final int? page;
 
   factory ClaimCitation.fromJson(Map<String, dynamic> json) => ClaimCitation(
-        sourceTitle: json['sourceTitle'] as String? ?? 'Source document',
-        section: json['section'] as String? ?? 'Unspecified section',
-        excerpt: json['excerpt'] as String? ?? '',
-        page: json['page'] is int ? json['page'] as int : null,
-      );
+    sourceTitle: json['sourceTitle'] as String? ?? 'Source document',
+    section: json['section'] as String? ?? 'Unspecified section',
+    excerpt: json['excerpt'] as String? ?? '',
+    page: json['page'] is int ? json['page'] as int : null,
+  );
 }
 
 class ClaimAnalysis {
@@ -120,6 +136,7 @@ class ClaimAnalysis {
   final List<String> nextSteps;
   final String disclaimer;
   final List<ClaimCitation> citations;
+
   /// Evidence excerpts/documents the model says it used. These are user-provided,
   /// not verified insurer sources.
   final List<String> evidenceUsed;
@@ -127,9 +144,15 @@ class ClaimAnalysis {
   factory ClaimAnalysis.fromJson(Map<String, dynamic> json) {
     return ClaimAnalysis(
       summary: json['summary'] as String? ?? 'No explanation was returned.',
-      missingDocuments: (json['missingDocuments'] as List<dynamic>? ?? const []).map((e) => e.toString()).toList(),
-      nextSteps: (json['nextSteps'] as List<dynamic>? ?? const []).map((e) => e.toString()).toList(),
-      disclaimer: json['disclaimer'] as String? ?? 'Confirm the next steps with your insurer.',
+      missingDocuments: (json['missingDocuments'] as List<dynamic>? ?? const [])
+          .map((e) => e.toString())
+          .toList(),
+      nextSteps: (json['nextSteps'] as List<dynamic>? ?? const [])
+          .map((e) => e.toString())
+          .toList(),
+      disclaimer:
+          json['disclaimer'] as String? ??
+          'Confirm the next steps with your insurer.',
       citations: (json['citations'] as List<dynamic>? ?? const [])
           .whereType<Map<String, dynamic>>()
           .map(ClaimCitation.fromJson)
@@ -179,9 +202,15 @@ class ClaimState {
   int get unpaidAmount => requestedAmount - approvedAmount;
   int get uploadedDocuments => documents.where((d) => d.uploaded).length;
   int get requiredDocuments => documents.where((d) => d.required).length;
-  int get uploadedRequiredDocuments => documents.where((d) => d.required && d.uploaded).length;
-  double get documentProgress => requiredDocuments == 0 ? 0 : uploadedRequiredDocuments / requiredDocuments;
-  List<String> get missingRequiredDocuments => documents.where((d) => d.required && !d.uploaded).map((d) => d.title).toList();
+  int get uploadedRequiredDocuments =>
+      documents.where((d) => d.required && d.uploaded).length;
+  double get documentProgress => requiredDocuments == 0
+      ? 0
+      : uploadedRequiredDocuments / requiredDocuments;
+  List<String> get missingRequiredDocuments => documents
+      .where((d) => d.required && !d.uploaded)
+      .map((d) => d.title)
+      .toList();
 
   factory ClaimState.empty() {
     return const ClaimState(
@@ -224,8 +253,11 @@ class ClaimState {
       appealDraft: appealDraft ?? this.appealDraft,
       analysis: clearAnalysis ? null : (analysis ?? this.analysis),
       isAnalyzing: isAnalyzing ?? this.isAnalyzing,
-      analysisError: clearAnalysisError ? null : (analysisError ?? this.analysisError),
-      reconsiderationMarkedSubmitted: reconsiderationMarkedSubmitted ?? this.reconsiderationMarkedSubmitted,
+      analysisError: clearAnalysisError
+          ? null
+          : (analysisError ?? this.analysisError),
+      reconsiderationMarkedSubmitted:
+          reconsiderationMarkedSubmitted ?? this.reconsiderationMarkedSubmitted,
     );
   }
 }

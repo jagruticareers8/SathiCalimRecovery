@@ -29,28 +29,30 @@ class HomePage extends StatelessWidget {
     final readyCount = documents
         .where((document) => (document.extractedText ?? '').trim().isNotEmpty)
         .length;
-    final failedCount = documents.where((document) => document.readFailed).length;
+    final failedCount = documents
+        .where((document) => document.readFailed)
+        .length;
     final allReady = documents.isNotEmpty && readyCount == documents.length;
 
     final heading = documents.isEmpty
         ? 'Let’s understand your claim'
         : allReady
-            ? 'Your documents are ready'
-            : failedCount > 0
-                ? 'One document needs a clearer copy'
-                : 'Sathi is reading your documents';
+        ? 'Your documents are ready'
+        : failedCount > 0
+        ? 'One document needs a clearer copy'
+        : 'Sathi is reading your documents';
     final description = documents.isEmpty
         ? 'Add your insurance letter, hospital bill or report. Sathi will read it automatically.'
         : allReady
-            ? 'Ask about your approved amount, claim decision, required documents or deadline.'
-            : failedCount > 0
-                ? 'Try adding a clearer photo or an unlocked PDF. You do not need to copy or paste anything.'
-                : 'You can ask your question as soon as your documents are ready.';
+        ? 'Ask about your approved amount, claim decision, required documents or deadline.'
+        : failedCount > 0
+        ? 'Try adding a clearer photo or an unlocked PDF. You do not need to copy or paste anything.'
+        : 'You can ask your question as soon as your documents are ready.';
     final buttonLabel = documents.isEmpty
         ? 'Add a document'
         : failedCount > 0
-            ? 'Try another document'
-            : 'Add another document';
+        ? 'Try another document'
+        : 'Add another document';
 
     return SingleChildScrollView(
       padding: const EdgeInsets.fromLTRB(18, 18, 18, 28),
@@ -107,10 +109,9 @@ class HomePage extends StatelessWidget {
           const SizedBox(height: 22),
           Text(
             'Namaste 👋',
-            style: Theme.of(context)
-                .textTheme
-                .bodyMedium
-                ?.copyWith(color: AppColors.muted),
+            style: Theme.of(
+              context,
+            ).textTheme.bodyMedium?.copyWith(color: AppColors.muted),
           ),
           const SizedBox(height: 6),
           Text(
@@ -120,10 +121,9 @@ class HomePage extends StatelessWidget {
           const SizedBox(height: 9),
           Text(
             'Upload your document once. Sathi reads it and helps explain what it means in simple language.',
-            style: Theme.of(context)
-                .textTheme
-                .bodyLarge
-                ?.copyWith(color: AppColors.muted),
+            style: Theme.of(
+              context,
+            ).textTheme.bodyLarge?.copyWith(color: AppColors.muted),
           ),
           const SizedBox(height: 14),
           SathiCard(
@@ -193,8 +193,11 @@ class HomePage extends StatelessWidget {
             child: const Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Icon(Icons.lock_outline_rounded,
-                    color: AppColors.teal, size: 18),
+                Icon(
+                  Icons.lock_outline_rounded,
+                  color: AppColors.teal,
+                  size: 18,
+                ),
                 SizedBox(width: 8),
                 Expanded(
                   child: Text(
@@ -217,12 +220,16 @@ class HomePage extends StatelessWidget {
                   .map((document) => document.fileName ?? document.title)
                   .toList(),
               'documentTexts': documents
-                  .where((document) =>
-                      (document.extractedText ?? '').trim().isNotEmpty)
-                  .map((document) => {
-                        'title': document.title,
-                        'text': document.extractedText,
-                      })
+                  .where(
+                    (document) =>
+                        (document.extractedText ?? '').trim().isNotEmpty,
+                  )
+                  .map(
+                    (document) => {
+                      'title': document.title,
+                      'text': document.extractedText,
+                    },
+                  )
                   .toList(),
             },
           ),

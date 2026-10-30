@@ -31,8 +31,9 @@ class _DocumentsPageState extends State<DocumentsPage> {
   static const int _maxFileBytes = 25 * 1024 * 1024;
 
   final OnDeviceDocumentReader _reader = OnDeviceDocumentReader();
-  final ValueNotifier<String> _progressText =
-      ValueNotifier<String>('Sathi is reading your document…');
+  final ValueNotifier<String> _progressText = ValueNotifier<String>(
+    'Sathi is reading your document…',
+  );
 
   bool _isWorking = false;
 
@@ -68,10 +69,10 @@ class _DocumentsPageState extends State<DocumentsPage> {
         Text(
           'YOUR DOCUMENTS',
           style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                color: AppColors.teal,
-                fontWeight: FontWeight.w900,
-                letterSpacing: 1.3,
-              ),
+            color: AppColors.teal,
+            fontWeight: FontWeight.w900,
+            letterSpacing: 1.3,
+          ),
         ),
         const SizedBox(height: 7),
         Text(
@@ -90,8 +91,11 @@ class _DocumentsPageState extends State<DocumentsPage> {
             children: [
               const Row(
                 children: [
-                  Icon(Icons.add_to_drive_outlined,
-                      color: AppColors.teal, size: 23),
+                  Icon(
+                    Icons.add_to_drive_outlined,
+                    color: AppColors.teal,
+                    size: 23,
+                  ),
                   SizedBox(width: 9),
                   Expanded(
                     child: Text(
@@ -179,8 +183,7 @@ class _DocumentsPageState extends State<DocumentsPage> {
           child: const Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Icon(Icons.lock_outline_rounded,
-                  color: AppColors.teal, size: 19),
+              Icon(Icons.lock_outline_rounded, color: AppColors.teal, size: 19),
               SizedBox(width: 9),
               Expanded(
                 child: Text(
@@ -206,8 +209,8 @@ class _DocumentsPageState extends State<DocumentsPage> {
     final statusText = isReady
         ? 'Ready to ask questions'
         : isFailed
-            ? 'Couldn’t read this file'
-            : 'Saved on this phone';
+        ? 'Couldn’t read this file'
+        : 'Saved on this phone';
 
     return SathiCard(
       padding: const EdgeInsets.all(13),
@@ -249,14 +252,14 @@ class _DocumentsPageState extends State<DocumentsPage> {
                       isReady
                           ? Icons.check_circle
                           : isFailed
-                              ? Icons.info_outline
-                              : Icons.lock_outline,
+                          ? Icons.info_outline
+                          : Icons.lock_outline,
                       size: 14,
                       color: isReady
                           ? AppColors.green
                           : isFailed
-                              ? AppColors.amber
-                              : AppColors.muted,
+                          ? AppColors.amber
+                          : AppColors.muted,
                     ),
                     const SizedBox(width: 5),
                     Expanded(
@@ -266,8 +269,8 @@ class _DocumentsPageState extends State<DocumentsPage> {
                           color: isReady
                               ? AppColors.green
                               : isFailed
-                                  ? AppColors.amber
-                                  : AppColors.muted,
+                              ? AppColors.amber
+                              : AppColors.muted,
                           fontSize: 10,
                           fontWeight: FontWeight.w700,
                         ),
@@ -341,8 +344,7 @@ class _DocumentsPageState extends State<DocumentsPage> {
         final cubit = context.read<ClaimCubit>();
         for (var index = 0; index < selectedFiles.length; index++) {
           final selected = selectedFiles[index];
-          final id =
-              'document_${DateTime.now().microsecondsSinceEpoch}_$index';
+          final id = 'document_${DateTime.now().microsecondsSinceEpoch}_$index';
           var saved = false;
 
           try {
@@ -366,9 +368,11 @@ class _DocumentsPageState extends State<DocumentsPage> {
             // Replacing a same-named file avoids duplicate entries when the
             // user reselects a clearer copy after a failed read.
             final duplicates = cubit.state.documents
-                .where((document) =>
-                    document.fileName?.toLowerCase() ==
-                    selected.name.toLowerCase())
+                .where(
+                  (document) =>
+                      document.fileName?.toLowerCase() ==
+                      selected.name.toLowerCase(),
+                )
                 .map((document) => document.id)
                 .toList();
             for (final duplicateId in duplicates) {
@@ -426,9 +430,9 @@ class _DocumentsPageState extends State<DocumentsPage> {
       final message = tooLargeCount > 0
           ? '$readyCount documents ready. One file is too large to add.'
           : '$readyCount documents ready. Sathi could not read one file. Try a clearer copy.';
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(message)),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(message)));
       widget.onDocumentsReady?.call();
       return;
     }
@@ -436,7 +440,9 @@ class _DocumentsPageState extends State<DocumentsPage> {
     if (tooLargeCount > 0) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('That file is too large. Please choose a file under 25 MB.'),
+          content: Text(
+            'That file is too large. Please choose a file under 25 MB.',
+          ),
         ),
       );
     } else if (failedCount > 0) {
@@ -450,10 +456,7 @@ class _DocumentsPageState extends State<DocumentsPage> {
     }
   }
 
-  Future<bool> _readSavedDocument(
-    ClaimCubit cubit,
-    String documentId,
-  ) async {
+  Future<bool> _readSavedDocument(ClaimCubit cubit, String documentId) async {
     String? temporaryPath;
     try {
       final path = await cubit.pathForOnDeviceOcr(documentId);
@@ -467,7 +470,8 @@ class _DocumentsPageState extends State<DocumentsPage> {
         path,
         onProgress: (completed, total) {
           if (total > 1) {
-            _progressText.value = 'Reading your document (page $completed of $total)…';
+            _progressText.value =
+                'Reading your document (page $completed of $total)…';
           }
         },
       );
@@ -509,10 +513,8 @@ class _DocumentsPageState extends State<DocumentsPage> {
               Expanded(
                 child: ValueListenableBuilder<String>(
                   valueListenable: _progressText,
-                  builder: (context, message, _) => Text(
-                    message,
-                    style: const TextStyle(height: 1.4),
-                  ),
+                  builder: (context, message, _) =>
+                      Text(message, style: const TextStyle(height: 1.4)),
                 ),
               ),
             ],
